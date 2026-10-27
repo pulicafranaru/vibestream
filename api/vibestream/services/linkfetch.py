@@ -29,6 +29,9 @@ MOST_WAIT_SECONDS = 3600
 MOST_FAILURES = 5
 SAVE_EVERY_SECONDS = 2.0
 CHUNK = 1024 * 1024
+TORBOX_POLL_SECONDS = 15
+# A release TorBox is fetching is given up on after this long without progress.
+TORBOX_STALL_SECONDS = 3 * 3600
 REPUBLISH_SECONDS = 600
 
 VIDEO_TYPES = {"video/mp4": ".mp4", "video/x-matroska": ".mkv", "video/webm": ".webm",
@@ -57,6 +60,8 @@ def folder(download_id: int) -> str:
 
 
 def redact(link: str) -> str:
+    if link.startswith("torbox:"):
+        return "torbox:"
     parts = urlsplit(link)
     return f"{parts.scheme}://{parts.netloc}/" if parts.netloc else "redacted"
 
@@ -292,8 +297,55 @@ def _on_disk(download_id: int) -> int:
     return os.path.getsize(partial) if os.path.exists(partial) else 0
 
 
+async def _torbox_ready(download_id: int, torrent_id: int, wanted: str | None,
+                        fallback: str) -> tuple[int, str] | None:
+    """Waits for TorBox to hold it whole. Returns (file id, a link to it),
+    or None once the download has been failed."""
+    from . import torbox
+
+    best, since = -1.0, time.monotonic()
+    errors = 0
+    while True:
+        try:
+            info = await torbox.state(torrent_id)
+            errors = 0
+        except (torbox.TorboxError, httpx.HTTPError) as exc:
+            errors += 1
+            if errors >= MOST_FAILURES:
+                await _fail(download_id, fallback, f"TorBox: {exc}")
+                return None
+            await asyncio.sleep(TORBOX_POLL_SECONDS)
+            continue
+        status = str(info.get("download_state") or "").lower()
+        if info.get("download_finished") and info.get("download_present", True):
+            chosen = torbox.pick_file(info.get("files") or [], wanted)
+            if chosen is None:
+                await _fail(download_id, fallback, "TorBox holds it, but with no video in it.")
+                return None
+            try:
+                return chosen["id"], await torbox.link(torrent_id, chosen["id"])
+            except (torbox.TorboxError, httpx.HTTPError) as exc:
+                await _fail(download_id, fallback, f"TorBox gave no link: {exc}")
+                return None
+        if "error" in status or "failed" in status:
+            await _fail(download_id, fallback, f"TorBox could not fetch it ({status}).")
+            return None
+        progress = float(info.get("progress") or 0.0)
+        if progress > best:
+            best, since = progress, time.monotonic()
+        elif time.monotonic() - since > TORBOX_STALL_SECONDS:
+            await _fail(download_id, fallback, "TorBox found nobody sharing it for three hours.")
+            return None
+        speed = int(info.get("download_speed") or 0)
+        _live[download_id] = {"size": int(info.get("size") or 0), "speed": speed}
+        await _save(download_id, progress=min(progress, 0.999), dl_speed=speed, error=None,
+                    eta_seconds=int(info["eta"]) if info.get("eta") else None,
+                    state=DownloadState.downloading.value)
+        await asyncio.sleep(TORBOX_POLL_SECONDS)
+
+
 async def _run(download_id: int) -> None:
-    from . import addons
+    from . import addons, torbox
     from .downloads import publish
 
     with session_scope() as s:
@@ -303,6 +355,15 @@ async def _run(download_id: int) -> None:
         url = download.link
         torrent = download.torrent
         fallback = torrent.name if torrent else f"download {download_id}"
+        wanted = torrent.file_name if torrent else None
+
+    on_torbox = torbox.torrent_id(url)
+    file_id = None
+    if on_torbox is not None:
+        ready = await _torbox_ready(download_id, on_torbox, wanted, fallback)
+        if ready is None:
+            return
+        file_id, url = ready
 
     asked_again = False
     waiting_since: float | None = None
@@ -327,6 +388,12 @@ async def _run(download_id: int) -> None:
                 return await _fail(download_id, fallback, f"The debrid link stopped working: {exc}.")
             asked_again = True
             fresh = None
+            if on_torbox is not None:
+                try:
+                    url = await torbox.link(on_torbox, file_id)
+                    continue
+                except (torbox.TorboxError, httpx.HTTPError) as error:
+                    return await _fail(download_id, fallback, f"TorBox gave no new link: {error}")
             with session_scope() as s:
                 download = s.get(Download, download_id)
                 if download is not None and download.torrent is not None:
@@ -370,6 +437,8 @@ async def _run(download_id: int) -> None:
         record_event(s, "downloads", f"fetched {fallback} from a debrid link",
                      f"{size / 1024 ** 3:.2f}GiB")
 
+    if on_torbox is not None:
+        await torbox.delete(on_torbox)
     _republished[download_id] = time.monotonic()
     try:
         with session_scope() as s:
@@ -383,19 +452,26 @@ async def _run(download_id: int) -> None:
 
 
 async def _fail(download_id: int, name: str, message: str) -> None:
-    def write() -> None:
+    from . import torbox
+
+    def write() -> int | None:
         with session_scope() as s:
             download = s.get(Download, download_id)
             if download is None:
-                return
+                return None
+            on_torbox = torbox.torrent_id(download.link)
             download.state = DownloadState.error.value
             download.error = message
             download.dl_speed = 0
             if download.link:
                 download.link = redact(download.link)
             record_event(s, "downloads", f"could not fetch {name}", message, level="error")
+            return on_torbox
 
     try:
-        await asyncio.to_thread(write)
+        on_torbox = await asyncio.to_thread(write)
     except Exception:  # noqa: BLE001
         log.exception("could not record that %s failed", name)
+        return
+    if on_torbox is not None:
+        await torbox.delete(on_torbox)

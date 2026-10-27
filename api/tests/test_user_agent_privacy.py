@@ -1,4 +1,4 @@
-"""Nothing this server sends to a third party says who is asking, or why."""
+"""What this server sends to a third party names the project at most: never who runs it."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vibestream import user_agent  # noqa: E402
+from vibestream.config import settings  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1] / "vibestream"
 
@@ -17,7 +18,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _private_words() -> list[str]:
-    """Extra words from PRIVACY_WORDS (comma separated) in the environment or .env."""
+    """Private names from PRIVACY_WORDS (comma separated), in the environment or .env."""
     raw = os.environ.get("PRIVACY_WORDS", "")
     env = REPO / ".env"
     if not raw and env.is_file():
@@ -27,21 +28,43 @@ def _private_words() -> list[str]:
     return [re.escape(w.strip()) for w in raw.split(",") if w.strip()]
 
 
-# An address, the project's name, a runtime announcing itself, or a purpose.
-FORBIDDEN = re.compile(
-    "|".join([r"vibestream", r"@", r"python|httpx|curl|node",
-              r"research|scraper|bot\b|contact|\+http", *_private_words()]),
+# Identifying a person or a purpose: an address, a runtime, a purpose, a private name.
+# The browser string may not name the project either.
+PERSONAL = re.compile(
+    "|".join([r"@", r"python|httpx|curl|node", r"research|scraper|bot\b|contact",
+              *_private_words()]),
     re.I,
 )
+FORBIDDEN = re.compile(PERSONAL.pattern + r"|vibestream|\+http", re.I)
 
 # qBittorrent is on the LAN; everything else is somebody else's server.
 LOCAL_CLIENTS = {"qbit.py", "user_agent.py"}
 
 
-def test_the_agent_is_a_plain_browser_string():
-    agent = user_agent.USER_AGENT
+def test_the_browser_agent_is_a_plain_browser_string():
+    agent = user_agent.BROWSER_AGENT
     assert agent.startswith("Mozilla/5.0 (")
     assert not FORBIDDEN.search(agent), agent
+
+
+def test_the_project_agent_names_the_project_and_nothing_else():
+    agent = user_agent.PROJECT_AGENT
+    assert re.fullmatch(r"VibeStream/\d+\.\d+\.\d+", agent), agent
+    assert not PERSONAL.search(agent), agent
+
+
+def test_the_dashboard_choice_decides_what_is_sent(monkeypatch):
+    monkeypatch.delenv("OUTBOUND_USER_AGENT", raising=False)
+    saved = settings.outbound_identity
+    try:
+        object.__setattr__(settings, "outbound_identity", "vibestream")
+        assert user_agent.outbound_client().headers["User-Agent"] == user_agent.PROJECT_AGENT
+        object.__setattr__(settings, "outbound_identity", "browser")
+        assert user_agent.outbound_client().headers["User-Agent"] == user_agent.BROWSER_AGENT
+        monkeypatch.setenv("OUTBOUND_USER_AGENT", "Custom/1.0")
+        assert user_agent.outbound_client().headers["User-Agent"] == "Custom/1.0"
+    finally:
+        object.__setattr__(settings, "outbound_identity", saved)
 
 
 def test_every_third_party_client_is_built_by_the_policy_module():
@@ -58,13 +81,13 @@ def test_every_third_party_client_is_built_by_the_policy_module():
 def test_no_source_file_hardcodes_an_identifying_agent():
     for path in PACKAGE.rglob("*.py"):
         for line in path.read_text().splitlines():
-            if re.search(r"user.agent", line, re.I) and FORBIDDEN.search(line.split("#")[0]):
+            if re.search(r"user.agent", line, re.I) and PERSONAL.search(line.split("#")[0]):
                 raise AssertionError(f"{path.name}: {line.strip()}")
 
 
 def test_outbound_clients_send_it():
-    client = user_agent.outbound_client(headers={"User-Agent": "Planted/1.0 vibestream"})
-    assert client.headers["User-Agent"] == user_agent.USER_AGENT
+    client = user_agent.outbound_client(headers={"User-Agent": "Planted/1.0"})
+    assert client.headers["User-Agent"] == user_agent.current()
 
 
 def test_a_third_partys_address_is_logged_by_its_host_alone(caplog):

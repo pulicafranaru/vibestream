@@ -60,6 +60,8 @@ FIELDS: dict[str, Field] = {f.key: f for f in [
     Field("filelist_min_seeders", "int", 0, 1000),
     Field("addons_enabled", "bool", apply=_forget_answers),
     Field("addon_urls", "urls", apply=_forget_answers),
+    Field("torbox_api_key", "secret"),
+    Field("outbound_identity", "choice", choices=("vibestream", "browser")),
     Field("tmdb_api_key", "secret"),
     Field("tmdb_language", "choice", choices=TMDB_LANGUAGES),
     Field("movies_dir", "path"),

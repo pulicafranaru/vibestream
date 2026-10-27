@@ -351,6 +351,23 @@ def _merged(items: list[dict]) -> list[Found]:
     return list(by_hash.values())
 
 
+async def _mark_torbox(found: list[Found]) -> None:
+    """Releases TorBox already holds count as held, as a debrid addon's
+    would: they arrive at once."""
+    from . import torbox
+
+    if not settings.torbox_configured or not found:
+        return
+    try:
+        on_torbox = await torbox.held([f.info_hash for f in found])
+    except (torbox.TorboxError, httpx.HTTPError) as exc:
+        log.warning("could not ask TorBox what it holds: %s", exc)
+        return
+    for f in found:
+        if f.info_hash.lower() in on_torbox:
+            f.held = True
+
+
 def _fresh(key: str) -> bool:
     at = _asked.get(key)
     return at is not None and time.monotonic() - at < FRESH_SECONDS
@@ -380,9 +397,11 @@ async def _ask(session: Session, media: Media, season: int | None = None,
             log.warning("no addon could answer for %s: %s", key, exc)
             return 0
 
+        merged = _merged(items)
+        await _mark_torbox(merged)
         # No await from here to the commit, so two stores cannot take the same next id.
         added = 0
-        for found in _merged(items):
+        for found in merged:
             _, created = store(session, media, found, season, episode)
             added += created
         session.commit()

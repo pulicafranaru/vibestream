@@ -6,6 +6,7 @@ import { ago, bytes, duration, PageHead, Panel, Ring, useToast } from './ui'
 const INTEGRATIONS = [
   { id: 'filelist', name: 'Filelist', what: 'Where new releases come from.' },
   { id: 'addons', name: 'Stremio addons', what: 'Releases from Torrentio and the like.' },
+  { id: 'torbox', name: 'TorBox', what: 'Fetches addon releases for this server.' },
   { id: 'tmdb', name: 'TMDB', what: 'Titles, posters and descriptions.' },
   { id: 'qbittorrent', name: 'qBittorrent', what: 'Downloads the releases.' },
 ]
@@ -14,7 +15,8 @@ const INTEGRATIONS = [
 function shown(health) {
   const on = (id) => health && health.integrations[id] && health.integrations[id].configured
   const none = !on('filelist') && !on('addons')
-  return INTEGRATIONS.filter((i) => (i.id === 'filelist' ? on('filelist') || none : i.id === 'addons' ? on('addons') : true))
+  return INTEGRATIONS.filter((i) => (i.id === 'filelist' ? on('filelist') || none
+    : i.id === 'addons' || i.id === 'torbox' ? on(i.id) : true))
 }
 
 /* Download posters arrive as a bare TMDB path (/abc.jpg). */

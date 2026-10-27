@@ -100,6 +100,13 @@ async def health(session: Session = Depends(get_session)):
     else:
         result["addons"] = {"configured": False, "ok": False, "detail": "Switched off"}
 
+    if settings.torbox_configured:
+        from ..services import torbox
+
+        ok, detail = await torbox.account()
+        result["torbox"] = {"configured": True, "ok": ok, "detail": detail,
+                            "names": [f"TorBox {detail}"] if ok else None}
+
     if settings.tmdb_configured:
         from ..services.tmdb import TMDBClient
 
@@ -120,6 +127,7 @@ async def health(session: Session = Depends(get_session)):
                                  "detail": "QBIT_PASSWORD not set"}
 
     needed = [v for k, v in result.items() if k not in ("filelist", "addons")]
+    # TorBox is optional: only one that is set up has to work.
     sources = [result[k] for k in ("filelist", "addons") if result[k]["configured"]]
     return {
         "ok": all(v["ok"] for v in needed) and bool(sources) and all(v["ok"] for v in sources),

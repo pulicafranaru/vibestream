@@ -316,6 +316,10 @@ async def request_download(
         session.add(download)
     session.commit()
 
+    if _by_torbox(torrent, episode, everything) and await _start_torbox(session, download, torrent):
+        if old_hash:
+            await _drop_torrent(session, old_hash, download.id, delete_files=True)
+        return download
     if _by_link(torrent, episode, everything) and await _start_link(session, download, torrent):
         if old_hash:
             await _drop_torrent(session, old_hash, download.id, delete_files=True)
@@ -426,6 +430,46 @@ async def request_download(
         raise DownloadError(str(exc)) from exc
 
     return download
+
+
+def _one_file(torrent: Torrent, episode: Episode | None, everything: bool) -> bool:
+    return episode is None and not everything and (torrent.season is None or torrent.episode is not None)
+
+
+def _by_torbox(torrent: Torrent, episode: Episode | None, everything: bool) -> bool:
+    """Through TorBox: an addon release of one film or one episode. Never
+    a filelist one (services/torbox.py, allowed)."""
+    from . import torbox
+
+    return settings.torbox_configured and torbox.allowed(torrent) and \
+        _one_file(torrent, episode, everything)
+
+
+async def _start_torbox(session: Session, download: Download, torrent: Torrent) -> bool:
+    """Hands it to TorBox; the fetch waits there until TorBox has it. False
+    when TorBox will not take it, and it goes the other ways instead."""
+    from . import linkfetch, torbox
+
+    try:
+        torrent_id = await torbox.add(torrent)
+    except Exception as exc:  # noqa: BLE001 - the other ways are still there
+        log.warning("TorBox would not take %s: %s", torrent.name, exc)
+        record_event(session, "downloads", f"TorBox would not take {torrent.name}", str(exc),
+                     level="warning")
+        return False
+    download.link = f"{torbox.PREFIX}{torrent_id}"
+    download.info_hash = None
+    download.wanted_files = None
+    download.wanted_at = utcnow()
+    download.save_path = linkfetch.folder(download.id)
+    download.progress = 0.0
+    download.downloaded_bytes = 0
+    download.state = DownloadState.downloading.value
+    download.added_at = utcnow()
+    session.commit()
+    linkfetch.start(download.id)
+    record_event(session, "downloads", f"queued {torrent.name} on TorBox")
+    return True
 
 
 def _by_link(torrent: Torrent, episode: Episode | None, everything: bool) -> bool:
@@ -914,11 +958,13 @@ async def cancel_download(session: Session, download_id: int, delete_files: bool
     if download.info_hash:
         await _drop_torrent(session, download.info_hash, download.id, delete_files)
     if download.link:
-        from . import linkfetch
+        from . import linkfetch, torbox
 
         linkfetch.stop(download.id)
         if delete_files:
             linkfetch.remove_files(download.id)
+        if (on_torbox := torbox.torrent_id(download.link)) is not None:
+            await torbox.delete(on_torbox)
 
     retire(session, download, paths)
     session.commit()

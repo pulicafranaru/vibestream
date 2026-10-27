@@ -85,6 +85,17 @@ export default function Sources() {
 
       <div style={{ height: 18 }} />
 
+      <Panel title="TorBox" icon="download" sub="A debrid service: it downloads releases for you, and this server fetches the finished file.">
+        <div className="rows">
+          <Row title="API key" name="torbox_api_key"
+            text="From torbox.app, under Settings. Films and single episodes the addons find then come through TorBox: at full speed when it already has them, after it downloads them otherwise, and never from this server's address. Filelist releases are never sent to it.">
+            <SecretInput name="torbox_api_key" />
+          </Row>
+        </div>
+      </Panel>
+
+      <div style={{ height: 18 }} />
+
       <Panel title="TMDB" icon="film" sub="The Movie Database: titles, posters, cast and descriptions.">
         <div className="rows">
           <Row title="API key" name="tmdb_api_key"
@@ -94,6 +105,20 @@ export default function Sources() {
           <Row title="Language" name="tmdb_language" text="The language titles and descriptions are fetched in. Titles already fetched change as they are next refreshed.">
             <Select name="tmdb_language"
               options={c.fields.tmdb_language.choices.map((v) => ({ value: v, label: LANGUAGE_NAMES[v] || v }))} />
+          </Row>
+        </div>
+      </Panel>
+
+      <div style={{ height: 18 }} />
+
+      <Panel title="Privacy" icon="lock" sub="How this server introduces itself to the services above.">
+        <div className="rows">
+          <Row title="Introduce it as" name="outbound_identity"
+            text="As VibeStream, the services can see their users run it, which helps the project. As a browser, requests look like any visitor's and say nothing about this server. Neither ever includes your name, address or accounts.">
+            <Select name="outbound_identity" options={[
+              { value: 'vibestream', label: 'VibeStream' },
+              { value: 'browser', label: 'An ordinary browser' },
+            ]} />
           </Row>
         </div>
       </Panel>

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import VERSION
 from .config import settings
 from .db import init_db, record_event, session_scope
 from .services import adminauth, overrides
@@ -62,7 +63,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="VibeStream",
     description="Filelist catalog, TMDB enrichment, downloads and instant play",
-    version="1.0.0",
+    version=VERSION,
     lifespan=lifespan,
 )
 

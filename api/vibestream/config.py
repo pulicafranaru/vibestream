@@ -70,6 +70,11 @@ class Settings:
         or [_str("TORRENTIO_URL") or TORRENTIO_DEFAULT_URL]
     )
 
+    # "vibestream" names the project in outbound requests, "browser" sends a plain browser's string.
+    outbound_identity: str = field(default_factory=lambda: _str("OUTBOUND_IDENTITY", "vibestream"))
+    # Addon releases are fetched through TorBox; filelist ones never are.
+    torbox_api_key: str = field(default_factory=lambda: _str("TORBOX_API_KEY"))
+
     tmdb_api_key: str = field(default_factory=lambda: _str("TMDB_API_KEY"))
     tmdb_language: str = field(default_factory=lambda: _str("TMDB_LANGUAGE", "en-US"))
     tmdb_image_base: str = field(
@@ -145,6 +150,10 @@ class Settings:
     @property
     def addons_configured(self) -> bool:
         return bool(self.addons_enabled and self.addon_urls)
+
+    @property
+    def torbox_configured(self) -> bool:
+        return bool(self.torbox_api_key)
 
     @property
     def has_source(self) -> bool:

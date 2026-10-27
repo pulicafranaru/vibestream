@@ -128,3 +128,36 @@ def test_qbittorrent_not_answering_is_a_qbit_error(failure):
             await client.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("status, body, cookie, works", [
+    (200, "Ok.", "SID", True),             # 4.x
+    (204, "", "SID", True),                # 5.0 and 5.1, which the installer pins
+    (204, "", "QBT_SID_8080", True),       # 5.2 and later
+    (204, "", None, False),
+])
+def test_every_qbittorrent_versions_session_cookie_signs_in(status, body, cookie, works):
+    import asyncio
+
+    import httpx
+
+    from vibestream.services.qbit import QbitAuthError, QbitClient
+
+    def handler(request):
+        headers = {"set-cookie": f"{cookie}=abc123; HttpOnly; path=/"} if cookie else {}
+        return httpx.Response(status, text=body, headers=headers)
+
+    async def run():
+        client = QbitClient(base_url="http://qbittorrent:8080", username="u", password="p")
+        client._client = httpx.AsyncClient(base_url="http://qbittorrent:8080",
+                                           transport=httpx.MockTransport(handler))
+        try:
+            if works:
+                await client.login()
+            else:
+                with pytest.raises(QbitAuthError):
+                    await client.login()
+        finally:
+            await client.close()
+
+    asyncio.run(run())

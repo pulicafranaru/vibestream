@@ -152,7 +152,8 @@ class QbitClient:
         if resp.status_code == 200 and resp.text.strip() not in ("", "Ok."):
             raise QbitAuthError(f"qBittorrent login failed: {resp.text[:120]}")
 
-        if not any(name.startswith("QBT_SID") for name in client.cookies.keys()):
+        # "SID" up to 5.1, "QBT_SID_<port>" from 5.2.
+        if not any(name == "SID" or name.startswith("QBT_SID") for name in client.cookies.keys()):
             raise QbitAuthError(
                 "qBittorrent returned success but set no session cookie"
             )

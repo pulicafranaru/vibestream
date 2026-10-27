@@ -61,5 +61,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # past the admin sign-in throttle. Set to the reverse proxy's address or subnet.
 ENV FORWARDED_ALLOW_IPS=127.0.0.1
 
+# Empty for a release; a commit's short hash for a build from main.
+ARG VIBESTREAM_BUILD=""
+ENV VIBESTREAM_BUILD=${VIBESTREAM_BUILD}
+
 CMD ["uvicorn", "vibestream.main:app", "--host", "0.0.0.0", "--port", "8000", \
      "--proxy-headers"]

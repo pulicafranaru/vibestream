@@ -79,19 +79,15 @@ def _add_missing_columns() -> None:
                 log.info("added column %s.%s", table.name, column.name)
 
 
-_RETIRED_TABLES = ("watch_states",)
-
-
 def init_db() -> None:
-    from sqlalchemy import text
+    from sqlalchemy import inspect
 
+    from .migrations import migrate
+
+    fresh = not inspect(engine).get_table_names()
     Base.metadata.create_all(engine)
     _add_missing_columns()
-    with engine.begin() as conn:
-        for name in _RETIRED_TABLES:
-            conn.execute(text(f'DROP TABLE IF EXISTS "{name}"'))
-        conn.execute(text("UPDATE ratings SET value = 1 WHERE value > 1"))
-        conn.execute(text("UPDATE torrents SET origin = 'addon' WHERE origin = 'torrentio'"))
+    migrate(engine, fresh)
     log.info("database ready at %s", settings.db_path)
 
 

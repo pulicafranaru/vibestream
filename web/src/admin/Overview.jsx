@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../shared/icons'
 import { admin } from './api'
-import { ago, bytes, duration, PageHead, Panel, Ring, useToast } from './ui'
+import { ago, bytes, CopyButton, duration, PageHead, Panel, Ring, useToast } from './ui'
 
 const INTEGRATIONS = [
   { id: 'filelist', name: 'Filelist', what: 'Where new releases come from.' },
@@ -36,6 +36,7 @@ export default function Overview({ go }) {
   const [health, setHealth] = useState(null)
   const [checking, setChecking] = useState(false)
   const [recent, setRecent] = useState([])
+  const [release, setRelease] = useState(null)
   const [running, setRunning] = useState(null)
   const say = useToast()
 
@@ -49,6 +50,7 @@ export default function Overview({ go }) {
     load()
     check()
     admin.events({ limit: 6 }).then(setRecent).catch(() => {})
+    admin.version().then(setRelease).catch(() => {})
     const timer = setInterval(load, 10000)
     return () => clearInterval(timer)
   }, [])
@@ -98,9 +100,11 @@ export default function Overview({ go }) {
         <div className="hello-facts">
           <div><b>{duration(o.uptime_seconds)}</b><span>up</span></div>
           <div><b>{o.engine === 'live' ? 'Live' : 'Converted'}</b><span>playback</span></div>
-          <div><b>{o.version}</b><span>version</span></div>
+          <div><b>{o.version}</b><span>{release && release.build ? `build ${release.build}` : 'version'}</span></div>
         </div>
       </section>
+
+      {release && release.available && <Update release={release} />}
 
       <div className="grid four" style={{ marginBottom: 18 }}>
         <Stat icon="film" label="Movies" value={o.library.movies} foot="ready to play" />
@@ -256,5 +260,26 @@ function Skeleton() {
         {[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 130, borderRadius: 14 }} />)}
       </div>
     </>
+  )
+}
+
+// A newer release: what it is, and the one command on the server that installs it.
+function Update({ release }) {
+  return (
+    <section className="update">
+      <Icon name="download" size={20} />
+      <div className="update-main">
+        <b>VibeStream {release.latest.version} is out</b>
+        <span>
+          This server runs {release.version}.{' '}
+          {release.latest.url && <a href={release.latest.url} target="_blank" rel="noreferrer">What is new</a>}
+        </span>
+        <div className="gate-command">
+          <code className="mono">{release.command}</code>
+          <CopyButton text={release.command} />
+        </div>
+        <span className="faint">Run it on the server. The database is backed up first, and if the new version does not start, the old one comes back by itself.</span>
+      </div>
+    </section>
   )
 }

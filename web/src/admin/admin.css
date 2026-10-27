@@ -411,6 +411,23 @@ a { color: inherit; }
 .hello-facts b { display: block; font-size: 15px; }
 .hello-facts span { color: var(--faint); font-size: 12px; }
 
+/* A newer release, under the banner. */
+.update {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 18px 22px;
+  border: 1px solid rgba(255, 106, 0, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 106, 0, 0.07);
+  color: var(--ember);
+}
+
+.update-main { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; color: var(--text); }
+.update-main b { font-size: 16px; }
+.update-main > span { color: var(--dim); font-size: 13.5px; }
+.update-main .gate-command { margin: 6px 0 2px; }
+
 .pulse {
   position: relative;
   flex: 0 0 auto;

@@ -316,3 +316,40 @@ export function duration(seconds) {
 export function Busy({ on, children }) {
   return on ? <span className="spinner" /> : children
 }
+
+// The clipboard API needs a secure context; over plain http this falls back
+// to a hidden textarea and execCommand.
+export function CopyButton({ text }) {
+  const [done, setDone] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const box = document.createElement('textarea')
+      box.value = text
+      box.style.position = 'fixed'
+      box.style.opacity = '0'
+      document.body.appendChild(box)
+      box.select()
+      document.execCommand('copy')
+      box.remove()
+    }
+    setDone(true)
+    setTimeout(() => setDone(false), 1600)
+  }
+  return (
+    <button type="button" className={`btn small ${done ? 'done' : ''}`} onClick={copy}
+      aria-label={done ? 'Copied' : 'Copy'} title={done ? 'Copied' : 'Copy'}>
+      {done ? <Icon name="check" size={15} /> : <CopyGlyph />}
+    </button>
+  )
+}
+
+function CopyGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2.5" />
+      <path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9" />
+    </svg>
+  )
+}

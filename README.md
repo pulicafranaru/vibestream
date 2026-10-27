@@ -95,11 +95,34 @@ code, choose an admin password, and the setup walks you through:
 2. **TMDB:** a free API key from themoviedb.org, for posters and details.
 3. **Subtitles:** the languages to keep.
 
-Run the same command again to update. Settings, media and the database are kept.
-
 Installer options, as environment variables: `VIBESTREAM_DIR`,
 `VIBESTREAM_MEDIA`, `VIBESTREAM_PORT` (80 when free, otherwise 8100),
-`VIBESTREAM_IMAGE`, `VIBESTREAM_NAME` and `TORRENT_PORT`.
+`VIBESTREAM_VERSION`, `VIBESTREAM_NAME` and `TORRENT_PORT`.
+
+### Updating
+
+The dashboard says when a new release is out. To install it, run the same
+command again. Settings and media are kept, and the database is backed up
+before anything changes. If the new version does not start, the previous one
+and its database are put back automatically.
+
+To go back to the version before the last update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pulicafranaru/vibestream/main/install.sh | sudo bash -s -- rollback
+```
+
+The last three backups are kept in `/opt/vibestream/backups`, so a rollback
+can be repeated to go further back. After a rollback, updates pause on that
+version until you ask for the latest again:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pulicafranaru/vibestream/main/install.sh | sudo VIBESTREAM_VERSION=latest bash
+```
+
+`VIBESTREAM_VERSION` also picks a specific release (`1.2.0`), or `edge` for
+builds of the main branch, which are untested. Updates only ever install
+releases unless you ask for `edge`.
 
 ## Security
 

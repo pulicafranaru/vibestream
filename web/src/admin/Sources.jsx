@@ -120,6 +120,10 @@ export default function Sources() {
               { value: 'browser', label: 'An ordinary browser' },
             ]} />
           </Row>
+          <Row title="Look for updates" name="update_check" end
+            text="Every few hours, GitHub is asked whether a newer VibeStream is out, and the overview says so. Nothing is ever installed without you.">
+            <Switch name="update_check" label="Look for updates" />
+          </Row>
         </div>
       </Panel>
     </>

@@ -74,6 +74,14 @@ def about(request: Request):
     }
 
 
+@locked.get("/version")
+async def version():
+    """The running version, and the newest release when update_check allows asking."""
+    from ..services import updates
+
+    return await updates.status()
+
+
 @locked.get("/health")
 async def health(session: Session = Depends(get_session)):
     result: dict[str, dict] = {}

@@ -72,6 +72,8 @@ class Settings:
 
     # "vibestream" names the project in outbound requests, "browser" sends a plain browser's string.
     outbound_identity: str = field(default_factory=lambda: _str("OUTBOUND_IDENTITY", "vibestream"))
+    # Ask GitHub now and then whether a newer release is out (services/updates.py).
+    update_check: bool = field(default_factory=lambda: _bool("UPDATE_CHECK", True))
     # Addon releases are fetched through TorBox; filelist ones never are.
     torbox_api_key: str = field(default_factory=lambda: _str("TORBOX_API_KEY"))
 

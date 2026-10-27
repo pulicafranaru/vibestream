@@ -38,6 +38,10 @@ def test_loves_left_over_become_likes_at_start():
     profile_id, media_id = _profile_and_title()
     with db.session_scope() as session:
         session.add(Rating(profile_id=profile_id, media_id=media_id, value=2))
+    from vibestream import migrations
+
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql(f"PRAGMA user_version = {migrations.STEPS.index(migrations._love_is_like)}")
     db.init_db()
     with db.session_scope() as session:
         assert session.query(Rating).filter_by(media_id=media_id).one().value == 1

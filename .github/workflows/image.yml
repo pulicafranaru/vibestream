@@ -1,6 +1,7 @@
 # Builds the image install.sh runs, for x86_64 and arm64, as ghcr.io/<owner>/vibestream.
-#   main   -> :latest, :sha-<short>
-#   v1.2.3 -> :1.2.3, :1.2, :latest
+#   main   -> :edge, :sha-<short>                 what is being worked on, untested
+#   v1.2.3 -> :1.2.3, :1.2, :latest, :sha-<short>  a release, what installs get
+# A release tag must match VERSION in api/vibestream/__init__.py.
 name: image
 
 on:
@@ -10,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -23,6 +24,20 @@ jobs:
     steps:
       # TODO: pin each action to a full commit SHA; a moved tag would run other code with the push token.
       - uses: actions/checkout@v4
+
+      - id: version
+        run: |
+          version="$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' api/vibestream/__init__.py)"
+          short="${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "${GITHUB_REF_NAME#v}" = "$version" ] \
+              || { echo "::error::tag $GITHUB_REF_NAME, but VERSION is $version"; exit 1; }
+            echo "label=$version" >>"$GITHUB_OUTPUT"
+            echo "build=" >>"$GITHUB_OUTPUT"
+          else
+            echo "label=$version+edge.$short" >>"$GITHUB_OUTPUT"
+            echo "build=$short" >>"$GITHUB_OUTPUT"
+          fi
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -37,11 +52,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/vibestream
+          flavor: latest=false
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
             type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.label }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -49,7 +68,20 @@ jobs:
           file: api/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: VIBESTREAM_BUILD=${{ steps.version.outputs.build }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # After the image, so the dashboard never offers a release that cannot be pulled yet.
+      - if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME#v}.md"
+          if [ -f "$notes" ]; then
+            gh release create "$GITHUB_REF_NAME" --title "VibeStream ${GITHUB_REF_NAME#v}" --notes-file "$notes" --verify-tag
+          else
+            gh release create "$GITHUB_REF_NAME" --title "VibeStream ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+          fi

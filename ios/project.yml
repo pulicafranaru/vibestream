@@ -1,0 +1,31 @@
+# xcodegen spec. scripts/deploy-ios.sh regenerates the .xcodeproj before every build.
+name: VibeStream
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Swift 5 mode on purpose: Swift 6 strict concurrency fights AVKit and UIKit interop.
+    SWIFT_VERSION: "5.0"
+    # Team and bundle id come from .env via scripts/deploy-ios.sh. Build through the script.
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0"
+
+targets:
+  VibeStream:
+    type: application
+    platform: iOS
+    supportedDestinations: [iOS]
+    deploymentTarget: "26.0"
+    sources:
+      - path: VibeStream
+    settings:
+      base:
+        # Written from Info.template.plist by scripts/deploy-ios.sh.
+        INFOPLIST_FILE: Generated/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        GENERATE_INFOPLIST_FILE: NO

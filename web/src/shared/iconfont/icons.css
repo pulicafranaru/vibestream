@@ -1,0 +1,23 @@
+/* Generated. Do not edit. */
+@font-face {
+  font-family: 'VibeStream Icons';
+  src: url('./vibestream-icons.woff2') format('woff2'),
+    url('./vibestream-icons.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+.vi {
+  display: inline-block;
+  font-family: 'VibeStream Icons';
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+  flex: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

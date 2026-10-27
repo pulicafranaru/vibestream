@@ -1,0 +1,18 @@
+# The image is built from api/ and web/; everything else, and build leftovers, stay out.
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/*.db*
+# Except the catalog a new server starts with (tools/catalog.py).
+!api/vibestream/seed/catalog.db.xz
+**/._*
+**/.DS_Store
+web/dist
+web/dist-legacy
+ios
+android
+webos
+build
+docs
+.git

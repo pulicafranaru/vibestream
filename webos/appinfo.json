@@ -1,0 +1,17 @@
+{
+  "id": "__APP_ID__",
+  "version": "1.0.29",
+  "vendor": "VibeStream",
+  "type": "web",
+  "main": "index.html",
+  "title": "VibeStream",
+  "icon": "icon-ember.png",
+  "largeIcon": "largeIcon-ember.png",
+  "splashBackground": "splash.png",
+  "bgColor": "#000000",
+  "iconColor": "#0b0b0f",
+  "disableBackHistoryAPI": false,
+  "supportPortraitMode": false,
+  "handlesRelaunch": false,
+  "noSplashOnLaunch": true
+}

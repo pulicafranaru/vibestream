@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1920, initial-scale=1" />
+    <title>VibeStream</title>
+    <style>
+      /* Plain CSS: this page must render before anything is known about the engine. */
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        font-family: Helvetica, Arial, sans-serif;
+        overflow: hidden;
+      }
+      /* Same spinner and place as web/tv.html, so the hand-over cannot be seen. */
+      .boot-spinner {
+        position: absolute; top: 50%; left: 50%;
+        box-sizing: content-box;
+        width: 58px; height: 58px; margin: -34px 0 0 -34px;
+        border: 5px solid rgba(255, 255, 255, 0.14);
+        border-top-color: #ff6a00;
+        border-radius: 50%;
+        -webkit-animation: boot-spin 0.9s linear infinite;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      @-webkit-keyframes boot-spin { to { -webkit-transform: rotate(360deg); } }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      #paint {
+        position: absolute;
+        top: 0;
+        left: 0;
+        color: #000;
+        font-size: 2px;
+      }
+      #wrap {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        transform: translateY(-50%);
+        display: none;
+      }
+      #status {
+        font-size: 28px;
+        color: #fff;
+      }
+      #detail {
+        margin-top: 14px;
+        font-size: 19px;
+        color: #7d818b;
+        line-height: 1.5;
+      }
+      .error #wrap { display: block; }
+      .error .boot-spinner { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="boot-spinner"></div>
+    <!--
+      One black-on-black character: webOS 6 shows the window only once real
+      content paints, and a background or a border spinner does not count.
+    -->
+    <div id="paint">.</div>
+    <script>
+      /* Spinners turn with the clock, so the launcher, tv.html and the app show the same angle. */
+      (function () {
+        var s = document.querySelectorAll('.boot-spinner')
+        for (var i = 0; i < s.length; i += 1) {
+          s[i].style.webkitAnimationDelay = s[i].style.animationDelay = (-(Date.now() % 900)) + 'ms'
+        }
+      })()
+    </script>
+    <div id="wrap">
+      <div id="status"></div>
+      <div id="detail"></div>
+    </div>
+
+    <script>
+      /*
+       * A loader, not a copy of the app: the web view gets the real origin, and a
+       * deploy reaches the TV on reload. Must parse on Chromium 53 (webOS 4.5):
+       * no optional chaining, object spread or other newer syntax.
+       */
+      /* webOS 4.5 waits for stageReady; webOS 6 for the first painted text (#paint). */
+      function stageReady() {
+        var sys = window.webOSSystem || window.PalmSystem
+        if (sys && sys.stageReady) sys.stageReady()
+      }
+      stageReady()
+      window.addEventListener('load', function () {
+        stageReady()
+        setTimeout(stageReady, 150)
+      })
+
+      var HOSTS = [
+        '__PUBLIC_URL__',
+        // For routers that will not answer a public name with a private address.
+        '__LAN_URL__'
+      ]
+      var PROBE = '/tv-ping.gif'
+      var TIMEOUT_MS = 6000
+
+      var statusEl = document.getElementById('status')
+      var detailEl = document.getElementById('detail')
+
+      /** An <img>, not fetch: from file:// (an opaque origin) a cross-origin fetch always fails. */
+      function reachable(base, done) {
+        var img = new Image()
+        var settled = false
+        function finish(ok) {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          img.onload = img.onerror = null
+          done(ok)
+        }
+        var timer = setTimeout(function () { finish(false) }, TIMEOUT_MS)
+        img.onload = function () { finish(true) }
+        img.onerror = function () { finish(false) }
+        // Cache-busted, or a cached success would answer for a server that is gone.
+        img.src = base + PROBE + '?t=' + new Date().getTime()
+      }
+
+      /**
+       * Chromium 53 (webOS 4.5) cannot parse the normal bundle, so it gets /legacy/tv.
+       * Tested by feature: object spread is the first construct that fails. Inside
+       * eval, because a syntax error in parsed source cannot be caught.
+       */
+      function tvPath() {
+        try {
+          eval('({ ...{} })')
+          return '/tv'
+        } catch (e) {
+          return '/legacy/tv'
+        }
+      }
+
+      function tryFrom(index) {
+        if (index >= HOSTS.length) return fail()
+        reachable(HOSTS[index], function (ok) {
+          if (ok) {
+            // replace: Back should leave the app, not return here. /tv: / is the browser app.
+            window.location.replace(HOSTS[index] + tvPath())
+          } else {
+            tryFrom(index + 1)
+          }
+        })
+      }
+
+      function fail() {
+        document.body.className = 'error'
+        statusEl.textContent = 'Cannot reach the VibeStream server'
+        detailEl.innerHTML =
+          'Tried ' + HOSTS.join('<br>') +
+          '<br><br>Check the server is running, then press OK to try again.'
+        function retry(event) {
+          var code = event.keyCode || event.which
+          if (code === 13) {
+            document.removeEventListener('keydown', retry)
+            document.body.className = ''
+            tryFrom(0)
+          }
+        }
+        document.addEventListener('keydown', retry)
+      }
+
+      tryFrom(0)
+    </script>
+  </body>
+</html>

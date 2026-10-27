@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+SQLAlchemy==2.0.51
+apscheduler==3.11.0
+python-dotenv==1.0.1
+# Vertical clip framing with YOLO11n on the CPU (services/smartcrop.py).
+numpy==2.5.4
+onnxruntime==1.31.0

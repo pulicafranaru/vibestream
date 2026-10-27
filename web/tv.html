@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>VibeStream</title>
+    <!-- Black from the first frame: the legacy build injects its stylesheet from JS. -->
+    <style>
+      html, body { margin: 0; background: #000; }
+      /* Boot spinner, inline so it shows from the first frame. Chromium 53 safe: no inset, no custom properties. */
+      .boot {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200;
+        background: #000;
+      }
+      .boot-spinner {
+        position: absolute; top: 50%; left: 50%;
+        box-sizing: content-box;
+        width: 58px; height: 58px; margin: -34px 0 0 -34px;
+        border: 5px solid rgba(255, 255, 255, 0.14);
+        border-top-color: #ff6a00;
+        border-radius: 50%;
+        -webkit-animation: boot-spin 0.9s linear infinite;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      @-webkit-keyframes boot-spin { to { -webkit-transform: rotate(360deg); } }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <!-- Outside #root so React never replaces it; App.jsx shows and hides it. -->
+    <div id="boot" class="boot"><div class="boot-spinner"></div></div>
+    <script>
+      /* Phase spinners to the clock so the launcher-to-app hand-over is seamless. */
+      (function () {
+        var s = document.querySelectorAll('.boot-spinner')
+        for (var i = 0; i < s.length; i += 1) {
+          s[i].style.webkitAnimationDelay = s[i].style.animationDelay = (-(Date.now() % 900)) + 'ms'
+        }
+      })()
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main-tv.jsx"></script>
+  </body>
+</html>

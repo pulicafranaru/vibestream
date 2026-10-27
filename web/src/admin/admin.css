@@ -151,8 +151,9 @@ a { color: inherit; }
   color: var(--text);
   font-size: 12px;
   line-height: 1.5;
+  min-width: 0;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .gate-command .btn.small { flex: 0 0 auto; width: 30px; padding: 0; justify-content: center; }

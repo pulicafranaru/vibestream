@@ -127,6 +127,8 @@ image_pin() {
 healthy() {
   for _ in $(seq 1 90); do
     curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && return 0
+    # Crashing over and over: no point waiting out the three minutes.
+    [ "$(docker inspect -f '{{.RestartCount}}' "$NAME-api" 2>/dev/null || echo 0)" -lt 3 ] || return 1
     sleep 2
   done
   return 1

@@ -1,4 +1,4 @@
-# The image is built from api/ and web/; everything else, and build leftovers, stay out.
+# The image is built from api/, web/ and the release notes; everything else, and build leftovers, stay out.
 **/node_modules
 **/.venv
 **/__pycache__
@@ -15,4 +15,5 @@ android
 webos
 build
 docs
+!docs/releases
 .git

@@ -89,6 +89,9 @@ fun ProfilesView(dismissable: Boolean, onDone: () -> Unit) {
     var managing by remember { mutableStateOf(Debug.has("manageProfiles")) }
     var editing by remember { mutableStateOf<EditorTarget?>(null) }
     var asking by remember { mutableStateOf<Pair<Profile, Boolean>?>(null) }
+    // Parental controls: an adult choosing its first PIN, and that PIN once typed.
+    var firstPin by remember { mutableStateOf<Profile?>(null) }
+    var firstTyped by remember { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
@@ -116,13 +119,14 @@ fun ProfilesView(dismissable: Boolean, onDone: () -> Unit) {
                             onTap = {
                                 when {
                                     managing -> if (profile.locked) asking = profile to true else editing = EditorTarget(profile, null)
+                                    profile.mustChoosePin -> { firstTyped = null; firstPin = profile }
                                     profile.locked && profile.id != AppState.profile?.id -> asking = profile to false
                                     else -> scope.launch { AppState.pick(profile); onDone() }
                                 }
                             },
                             onHold = { managing = true })
                     }
-                } + if (managing || AppState.profiles.isEmpty()) listOf<@Composable () -> Unit>({ AddProfileTile { editing = EditorTarget(null, null) } }) else emptyList()
+                } + if ((managing || AppState.profiles.isEmpty()) && !AppState.guarded) listOf<@Composable () -> Unit>({ AddProfileTile { editing = EditorTarget(null, null) } }) else emptyList()
                 Column(verticalArrangement = Arrangement.spacedBy(26.dp)) {
                     tiles.chunked(columns).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -151,6 +155,26 @@ fun ProfilesView(dismissable: Boolean, onDone: () -> Unit) {
                 else scope.launch { AppState.pick(profile, pin); onDone() }
             }
             answer
+        }
+    }
+    firstPin?.let { profile ->
+        PinEntry(profile, if (firstTyped == null) "Choose a PIN" else "Enter it again",
+            subtitle = if (firstTyped == null) "Parental controls are on, so every adult profile has a PIN. Four digits, asked for when someone chooses this profile." else null,
+            onClose = { firstPin = null }) { typed ->
+            val first = firstTyped
+            if (first == null) {
+                firstTyped = typed
+                return@PinEntry PinAnswer.Right
+            }
+            if (typed != first) return@PinEntry PinAnswer.Mismatch
+            runCatching { Api.setPin(profile.id, typed, null) }.exceptionOrNull()?.let { return@PinEntry PinAnswer.of(it) }
+            firstPin = null
+            scope.launch {
+                AppState.loadProfiles(true)
+                AppState.pick(AppState.profiles.firstOrNull { it.id == profile.id } ?: profile, typed)
+                onDone()
+            }
+            PinAnswer.Right
         }
     }
     editing?.let { target -> ProfileEditor(target.profile, target.pin) { editing = null } }
@@ -323,7 +347,13 @@ private fun ProfileEditor(profile: Profile?, unlocked: String?, onClose: () -> U
                 }
             }
 
-            if (!isNew) {
+            // Under parental controls a kids profile has no PIN and stays; it
+            // is changed in the admin dashboard.
+            if (AppState.guarded && profile?.kids == true) {
+                Text("Kids profile: titles rated up to ${profile.maxMaturityLabel ?: "the limit set"}. Changed in the admin dashboard.",
+                    fontSize = 13.sp, color = Palette.dim, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().background(Palette.fill, RoundedCornerShape(14.dp)).padding(14.dp))
+            } else if (!isNew) {
                 Row(Modifier.fillMaxWidth().background(Palette.fill, RoundedCornerShape(14.dp)).padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(Icons.Outlined.Lock, null, tint = Palette.dim, modifier = Modifier.size(18.dp))
@@ -331,7 +361,8 @@ private fun ProfileEditor(profile: Profile?, unlocked: String?, onClose: () -> U
                     Spacer(Modifier.weight(1f))
                     Text(if (hasPin) "Change" else "Add a PIN", fontSize = 15.sp, color = Color.White,
                         modifier = Modifier.pressable { chosen = null; choosingPin = true })
-                    if (hasPin) Text("Remove", fontSize = 15.sp, color = Palette.accent, modifier = Modifier.pressable {
+                    // Under parental controls an adult keeps one.
+                    if (hasPin && !AppState.guarded) Text("Remove", fontSize = 15.sp, color = Palette.accent, modifier = Modifier.pressable {
                         error = null
                         scope.launch {
                             runCatching { Api.setPin(profile!!.id, null, pin); pin = null; hasPin = false; AppState.loadProfiles(true) }

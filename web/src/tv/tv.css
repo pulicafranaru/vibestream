@@ -1113,6 +1113,34 @@ body.legacy-tv .pill-btn {
   color: #fff;
 }
 
+/* An amber dot: this one is on the server and plays now. Netflix has
+   everything ready, so it has nothing like it. */
+/* Kept on a kids profile's watchlist above its ceiling: dimmed, locked. */
+.tile.locked > img,
+.tile.locked > .tile-still,
+.tile.locked > .tile-logo,
+.tile.locked > .tile-name,
+.tile.locked > .tile-fallback { opacity: 0.32; filter: grayscale(0.6); }
+
+.tile-lock {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.tile-lock .vi {
+  padding: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  box-sizing: content-box;
+}
+
 .tile-ready {
   position: absolute;
   top: 12px;

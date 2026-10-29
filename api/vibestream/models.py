@@ -15,6 +15,7 @@ from sqlalchemy import (
     TypeDecorator,
     UniqueConstraint,
 )
+from sqlalchemy import event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -101,6 +102,9 @@ class Media(Base):
     coverage: Mapped[float | None] = mapped_column(Float, nullable=True)
     # TMDB details as JSON. NULL means not fetched yet, which the backfill looks for.
     facts: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The youngest age the age rating in facts suits (services/maturity.py),
+    # kept in step with facts by _facts_set below. NULL: not rated.
+    maturity: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     enrich_status: Mapped[str] = mapped_column(
         String(16), default=EnrichStatus.pending.value, index=True
@@ -319,6 +323,9 @@ class Profile(Base):
     language: Mapped[str] = mapped_column(String(8), default="en")
     # "salt$pbkdf2 hash". NULL means no PIN.
     pin_hash: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    # A kids profile's ceiling under parental controls, an age from
+    # services/maturity.LEVELS. NULL: the default there.
+    max_maturity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
@@ -540,3 +547,17 @@ def _server_defaults() -> None:
 
 
 _server_defaults()
+
+
+@event.listens_for(Media.facts, "set")
+def _facts_set(target: Media, value, _old, _initiator) -> None:
+    """Media.maturity follows the age rating in facts, wherever facts is written."""
+    import json
+
+    from .services.maturity import age
+
+    try:
+        certification = (json.loads(value) or {}).get("certification") if value else None
+    except (TypeError, ValueError):
+        certification = None
+    target.maturity = age(certification)

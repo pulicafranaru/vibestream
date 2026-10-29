@@ -30,6 +30,9 @@ def test_an_old_database_takes_every_step_once(tmp_path, monkeypatch):
         conn.execute(text("CREATE TABLE torrents (id INTEGER, origin TEXT)"))
         conn.execute(text("CREATE TABLE ratings (id INTEGER, value INTEGER)"))
         conn.execute(text("CREATE TABLE watch_states (id INTEGER)"))
+        conn.execute(text("CREATE TABLE media (id INTEGER, facts TEXT, maturity INTEGER)"))
+        conn.execute(text("""INSERT INTO media VALUES (1, '{"certification": "PG-13"}', NULL),
+                             (2, '{"certification": null}', NULL), (3, NULL, NULL)"""))
         conn.execute(text("INSERT INTO torrents VALUES (1, 'torrentio'), (2, 'filelist')"))
         conn.execute(text("INSERT INTO ratings VALUES (1, 2), (2, -1)"))
     ran = []
@@ -41,6 +44,7 @@ def test_an_old_database_takes_every_step_once(tmp_path, monkeypatch):
         assert conn.execute(text("SELECT origin FROM torrents ORDER BY id")).scalars().all() == ["addon", "filelist"]
         assert conn.execute(text("SELECT value FROM ratings ORDER BY id")).scalars().all() == [1, -1]
         assert not conn.execute(text("SELECT name FROM sqlite_master WHERE name = 'watch_states'")).first()
+        assert conn.execute(text("SELECT maturity FROM media ORDER BY id")).scalars().all() == [13, None, None]
     assert ran == [1]
 
 

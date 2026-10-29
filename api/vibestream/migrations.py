@@ -33,10 +33,26 @@ def _torrentio_is_an_addon(conn: Connection) -> None:
     conn.execute(text("UPDATE torrents SET origin = 'addon' WHERE origin = 'torrentio'"))
 
 
+def _maturity_from_facts(conn: Connection) -> None:
+    import json
+
+    from .services.maturity import age
+
+    rows = conn.execute(text("SELECT id, facts FROM media WHERE facts IS NOT NULL")).all()
+    for media_id, facts in rows:
+        try:
+            certification = (json.loads(facts) or {}).get("certification")
+        except (TypeError, ValueError):
+            continue
+        conn.execute(text("UPDATE media SET maturity = :age WHERE id = :id"),
+                     {"age": age(certification), "id": media_id})
+
+
 STEPS: list[Callable[[Connection], None]] = [
     _retire_watch_states,
     _love_is_like,
     _torrentio_is_an_addon,
+    _maturity_from_facts,
 ]
 
 

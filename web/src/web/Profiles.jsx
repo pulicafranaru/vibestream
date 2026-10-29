@@ -10,14 +10,45 @@ import { confirmDialog } from './Confirm'
 
 const verdict = (e) => (e.status === 429 ? 'wait' : e.status === 403 ? 'wrong' : 'error')
 
-/** `ask(profile, then)` runs `then(pin)` at once without a PIN, or after the right one. */
+/**
+ * Asking for a profile's PIN before doing something with it: `ask(profile,
+ * then)` runs `then(pin)` at once when it has none, or after the right one.
+ * Under parental controls an adult without one chooses it first.
+ */
 function usePinGate(title) {
   const [asking, setAsking] = useState(null)
+  const [choosing, setChoosing] = useState(null)
   const ask = (profile, then) => {
-    if (!profile.has_pin) then(null)
+    if (profile.needs_pin) setChoosing({ profile, then, step: 'choose' })
+    else if (!profile.has_pin) then(null)
     else setAsking({ profile, then })
   }
-  const dialog = asking && (
+  const chosen = async (value) => {
+    if (choosing.step === 'choose') {
+      setChoosing({ ...choosing, step: 'again', first: value })
+      return true
+    }
+    if (value !== choosing.first) return 'mismatch'
+    try {
+      await api.setPin(choosing.profile.id, value, null)
+    } catch (e) {
+      return verdict(e)
+    }
+    setChoosing(null)
+    choosing.then(value)
+    return true
+  }
+  const dialog = choosing ? (
+    <PinDialog
+      profile={choosing.profile}
+      title={choosing.step === 'choose' ? 'Choose a PIN' : 'Enter it again'}
+      subtitle={choosing.step === 'choose'
+        ? 'Parental controls are on, so every adult profile has a PIN. Four digits, asked for when someone chooses this profile.'
+        : null}
+      onEntered={chosen}
+      onClose={() => setChoosing(null)}
+    />
+  ) : asking && (
     <PinDialog
       profile={asking.profile}
       title={title}
@@ -37,8 +68,10 @@ function usePinGate(title) {
   return { ask, dialog }
 }
 
-/** `open(profile)` asks for its PIN, then shows the editor; `open(null)` makes a new one. Render `element`. */
-export function useProfileEditor({ onSaved, onPinChanged }) {
+// Editing a profile: `open(profile)` asks for its PIN when it has one, then shows the editor;
+// `open(null)` makes a new one. `onSaved(saved, opened)` hears what was saved, null when it was
+// deleted, and which profile was opened. Render `element` somewhere.
+export function useProfileEditor({ onSaved, onPinChanged, guarded = false }) {
   // { profile, pin }, profile null for a new one.
   const [editing, setEditing] = useState(null)
   const gate = usePinGate('Enter the PIN to edit this profile')
@@ -53,6 +86,7 @@ export function useProfileEditor({ onSaved, onPinChanged }) {
       {editing && (
         <Editor
           profile={editing.profile}
+          guarded={guarded}
           unlocked={editing.pin}
           onPinChanged={() => onPinChanged && onPinChanged(editing.profile)}
           onClose={() => setEditing(null)}
@@ -69,9 +103,11 @@ export function useProfileEditor({ onSaved, onPinChanged }) {
   return { open, element }
 }
 
-export function ProfileGate({ profiles, onChoose, onChanged }) {
+// Who's watching: shown when nobody is chosen yet, and by Switch Profile.
+export function ProfileGate({ profiles, guarded, onChoose, onChanged }) {
   const gate = usePinGate('Enter your PIN')
   const editor = useProfileEditor({
+    guarded,
     onSaved: async (saved, opened) => {
       await onChanged()
       if (saved && !opened) onChoose(saved)
@@ -85,7 +121,11 @@ export function ProfileGate({ profiles, onChoose, onChanged }) {
       <div className="gate-grid">
         {profiles.map((profile) => (
           <div key={profile.id} className="gate-cell">
-            <button className="gate-tile" onClick={() => gate.ask(profile, () => onChoose(profile))}>
+            <button className="gate-tile" onClick={() => gate.ask(profile, async () => {
+              // A PIN just chosen: the profile as the server now has it.
+              if (profile.needs_pin) await onChanged()
+              onChoose({ ...profile, needs_pin: false, has_pin: profile.has_pin || profile.needs_pin })
+            })}>
               <Avatar id={profile.avatar} size={140} />
               <span>{profile.name}</span>
             </button>
@@ -99,10 +139,13 @@ export function ProfileGate({ profiles, onChoose, onChanged }) {
             </button>
           </div>
         ))}
-        <button className="gate-tile add" onClick={() => editor.open(null)}>
-          <span className="plus">+</span>
-          <span>Add profile</span>
-        </button>
+        {/* Under parental controls, profiles are added in the admin dashboard. */}
+        {!guarded && (
+          <button className="gate-tile add" onClick={() => editor.open(null)}>
+            <span className="plus">+</span>
+            <span>Add profile</span>
+          </button>
+        )}
       </div>
 
       {editor.element}
@@ -111,7 +154,7 @@ export function ProfileGate({ profiles, onChoose, onChanged }) {
   )
 }
 
-function Editor({ profile, unlocked = null, onPinChanged, onClose, onSaved }) {
+function Editor({ profile, guarded, unlocked = null, onPinChanged, onClose, onSaved }) {
   const [name, setName] = useState(profile ? profile.name : '')
   const [avatar, setAvatar] = useState(profile ? profile.avatar : allAvatars()[0])
   const [kids, setKids] = useState(profile ? !!profile.is_kids : false)
@@ -157,7 +200,9 @@ function Editor({ profile, unlocked = null, onPinChanged, onClose, onSaved }) {
     setError(null)
     try {
       const saved = profile
-        ? await api.updateProfile(profile.id, { name: name.trim(), avatar, is_kids: kids }, pin)
+        ? await api.updateProfile(profile.id, guarded
+          ? { name: name.trim(), avatar }
+          : { name: name.trim(), avatar, is_kids: kids }, pin)
         : await api.createProfile(name.trim(), avatar, undefined, kids)
       await onSaved(saved)
     } catch (e) {
@@ -225,6 +270,18 @@ function Editor({ profile, unlocked = null, onPinChanged, onClose, onSaved }) {
           </div>
 
           <div className="editor-settings">
+            {guarded ? (
+              <div className="editor-setting">
+                <div>
+                  <div className="editor-setting-title">{kids ? 'Kids profile' : 'Adult profile'}</div>
+                  <div className="editor-setting-detail">
+                    {kids
+                      ? `Parental controls are on: titles rated up to ${profile.max_maturity_label}. Changed in the admin dashboard.`
+                      : 'Parental controls are on, so this profile keeps a PIN.'}
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className="editor-setting">
               <div className="editor-setting-title">Kids profile</div>
               <button
@@ -238,7 +295,8 @@ function Editor({ profile, unlocked = null, onPinChanged, onClose, onSaved }) {
                 <span className="switch-knob" />
               </button>
             </div>
-            {profile && (
+            )}
+            {profile && !(guarded && kids) && (
               <div className="editor-setting">
                 <div>
                   <div className="editor-setting-title">
@@ -259,6 +317,7 @@ function Editor({ profile, unlocked = null, onPinChanged, onClose, onSaved }) {
                   aria-checked={hasPin}
                   aria-label="PIN"
                   className={`switch ${hasPin ? 'on' : ''}`}
+                  disabled={guarded && hasPin}
                   onClick={() => (hasPin ? removePin() : setChoosing({ step: 'choose' }))}
                 >
                   <span className="switch-knob" />
@@ -270,7 +329,7 @@ function Editor({ profile, unlocked = null, onPinChanged, onClose, onSaved }) {
           {error && <p className="note error">{error}</p>}
 
           <div className="editor-footer">
-            {profile && (
+            {profile && !(guarded && kids) && (
               <button type="button" className="editor-delete" onClick={remove} disabled={busy}>
                 Delete Profile
               </button>

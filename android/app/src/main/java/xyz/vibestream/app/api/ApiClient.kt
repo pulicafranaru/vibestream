@@ -295,6 +295,25 @@ object Api {
         raw("/api/downloads/$of/episodes/$episodeID", method = "DELETE")
     }
 
+    /** Downloads as what was asked for, newest first. */
+    suspend fun downloadJobs() = get(DownloadJobs.serializer(), "/api/downloads/jobs")
+
+    /** The torrent under a job, and the job itself as it is now. */
+    suspend fun inspectJob(id: Int) = get(JobInspection.serializer(), "/api/downloads/jobs/$id/inspect")
+
+    /** What a job brought: one episode of a pack, or the film or season. */
+    suspend fun deleteJob(id: Int) {
+        raw("/api/downloads/jobs/$id", method = "DELETE")
+    }
+
+    /** The torrent's own copy, once everything that plays is built from it.
+     *  `force` before seeding is done, which the tracker counts against us. */
+    suspend fun removeSource(downloadID: Int, force: Boolean = false) {
+        raw("/api/downloads/$downloadID/remove-source", if (force) mapOf("force" to "true") else emptyMap(), "POST")
+    }
+
+    // ------------------------------------------------------------ playback
+
     suspend fun playInfo(playID: String) = get(PlayInfo.serializer(), "/api/play/$playID/info")
 
     suspend fun prepare(playID: String, audio: Int? = null) =

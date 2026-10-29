@@ -545,6 +545,25 @@ a { color: inherit; text-decoration: none; }
 .grid .tile { width: auto; }
 .page .grid { padding: 0; }
 
+/* Kept on a kids profile's watchlist above its ceiling: dimmed, locked. */
+.tile.locked { cursor: not-allowed; }
+.tile.locked .tile-art > :not(.tile-lock) { filter: grayscale(0.6) brightness(0.4); }
+
+.tile-lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.tile-lock .vi {
+  padding: 12px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  box-sizing: content-box;
+}
+
 .tile-art {
   position: relative;
   aspect-ratio: 16 / 9;

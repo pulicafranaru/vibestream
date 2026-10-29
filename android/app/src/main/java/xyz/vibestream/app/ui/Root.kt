@@ -1,5 +1,7 @@
 package xyz.vibestream.app.ui
 
+import kotlinx.coroutines.delay
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -97,7 +99,8 @@ val TopFade = 28.dp
 
 val LocalTopClearance = compositionLocalOf { 0.dp }
 
-val TabBarClearance = 62.dp
+/** What scroll views leave clear at the bottom, above the floating bar. */
+val TabBarClearance = 70.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,10 +112,35 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
     var showingNotifications by remember { mutableStateOf(Debug.has("notifications")) }
     var introPlayed by rememberSaveable { mutableStateOf(false) }
 
+    // Handed to the title page opened to play, for that opening only.
+    var autoplay by remember { mutableStateOf<PlayRequest?>(null) }
+    // Play from outside a title's page: the page opens, its picture playing. There is one page for
+    // a title, playing or not, so a tile's Play, the hero, Downloads and another device all go
+    // there rather than to a player with a page of its own.
+    fun openPlaying(request: PlayRequest) {
+        AppState.launch {
+            val info = runCatching { Api.playInfo(request.playID) }.getOrNull()
+            val card = info?.mediaID?.let { runCatching { Api.media(it) }.getOrNull() }
+            if (card == null || card.locked == true) { onPlay(request); return@launch }
+            // The page's season list lands on the episode playing.
+            val episode = info.presentation?.episode
+            // One sheet at a time, and the same title's page opened afresh, so it starts playing.
+            if (showingDownloads || showingNotifications || selection != null) {
+                showingDownloads = false
+                showingNotifications = false
+                selection = null
+                delay(450)
+            }
+            autoplay = request.copy(season = request.season ?: episode?.season, episode = request.episode ?: episode?.number)
+            selection = card
+            delay(1_000)
+            autoplay = null
+        }
+    }
     val nav = remember {
         Navigator(
-            open = { selection = it },
-            play = onPlay,
+            open = { if (it.locked != true) selection = it },
+            play = { openPlaying(it) },
             showDownloads = { showingDownloads = true },
         )
     }
@@ -131,7 +159,7 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
                     if (wanted != null && wanted != AppState.profile?.id) {
                         AppState.profiles.firstOrNull { it.id == wanted }?.let { AppState.pick(it) }
                     }
-                    onPlay(PlayRequest(playID, command.title.orEmpty(), command.position))
+                    openPlaying(PlayRequest(playID, command.title.orEmpty(), command.position))
                 }
             }
         }
@@ -140,7 +168,13 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
     }
     LaunchedEffect(Unit) {
         AppState.start()
-        Debug.string("play")?.let { onPlay(PlayRequest(it, "Debug", Debug.string("at")?.toDoubleOrNull())) }
+        Debug.string("play")?.let { openPlaying(PlayRequest(it, "Debug", Debug.string("at")?.toDoubleOrNull())) }
+        Debug.string("toast")?.let { delay(12_000); Toasts.error(it) }
+    }
+    // A title chosen in the player (Similar, a name in About) opens here
+    // once the player has gone.
+    LaunchedEffect(xyz.vibestream.app.PlayerHandOff.title) {
+        xyz.vibestream.app.PlayerHandOff.title?.let { selection = it; xyz.vibestream.app.PlayerHandOff.title = null }
     }
     LaunchedEffect(AppState.needsProfilePick) {
         if (AppState.needsProfilePick && AppState.profile != null) switchingProfile = true
@@ -177,7 +211,7 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
                     Box(Modifier.widthIn(max = if (landscape) 720.dp else 1040.dp).fillMaxSize().padding(horizontal = 14.dp)
                         .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)).background(Palette.ground)
                         .pointerInput(Unit) { detectTapGestures { } }) {
-                        DetailView(card, nav, onClose = { selection = null })
+                        DetailView(card, nav, autoplay, onClose = { selection = null })
                     }
                 }
             }
@@ -195,7 +229,7 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
             modifier = Modifier.padding(top = statusBar),
         ) {
             androidx.compose.runtime.key(card.mediaID) {
-                DetailView(card, nav, onClose = { selection = null })
+                DetailView(card, nav, autoplay, onClose = { selection = null })
             }
         }
     }
@@ -209,6 +243,7 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
             NotificationsList(
                 onOpen = { card -> showingNotifications = false; selection = card },
                 onDownloads = { showingNotifications = false; showingDownloads = true },
+                onClose = { showingNotifications = false },
             )
         }
     }
@@ -330,7 +365,7 @@ private fun TopBar(title: String, onDownloads: () -> Unit, onBell: () -> Unit, o
 
 @Composable
 private fun AppTabBar(tab: String, avatar: String?, onTab: (String) -> Unit) {
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 18.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 10.dp), contentAlignment = Alignment.Center) {
         Row(
             Modifier.widthIn(max = 420.dp).fillMaxWidth()
                 .shadow(18.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)

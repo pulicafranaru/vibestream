@@ -59,6 +59,10 @@ export const admin = {
 
   profiles: () => call('/profiles'),
   resetPin: (id) => call(`/profiles/${id}/pin`, { method: 'DELETE' }),
+  setPin: (id, pin) => call(`/profiles/${id}/pin`, { method: 'PUT', body: { pin } }),
+  makeProfile: (profile) => call('/profiles', { method: 'POST', body: profile }),
+  changeProfile: (id, change) => call(`/profiles/${id}`, { method: 'PATCH', body: change }),
+  removeProfile: (id) => call(`/profiles/${id}`, { method: 'DELETE' }),
   devices: () => call('/devices'),
   changeDevice: (id, change) => call(`/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: change }),
   forgetDevice: (id) => call(`/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),

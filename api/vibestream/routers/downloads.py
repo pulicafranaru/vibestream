@@ -13,6 +13,7 @@ from ..models import Download, DownloadJob, DownloadState, Episode, Torrent
 from ..schemas import _wanted_labels, download_summary, torrent_summary
 from ..services import downloads as dl_service
 from ..services import jobs as jobs_service
+from ..services import maturity
 from ..services import streaming
 
 router = APIRouter(prefix="/api", tags=["downloads"])
@@ -35,7 +36,7 @@ def list_downloads(
                 ]
             )
         )
-    rows = list(session.scalars(stmt))
+    rows = maturity.downloads(session.scalars(stmt))
     return [
         {
             **download_summary(row),
@@ -52,7 +53,7 @@ async def manager(session: Session = Depends(get_session)):
     from ..services.qbit import QbitClient, QbitError
     from ..services.tmdb import poster_url
 
-    rows = list(
+    rows = maturity.downloads(
         session.scalars(
             select(Download)
             .where(Download.state != DownloadState.removed.value)
@@ -160,7 +161,9 @@ async def list_jobs(session: Session = Depends(get_session)):
     from ..services.library import free_bytes
     from ..services.qbit import QbitClient, QbitError
 
-    wanted = jobs_service.live_jobs(session)
+    limit = maturity.current()
+    wanted = [job for job in jobs_service.live_jobs(session)
+              if maturity.allowed(maturity.media_of(job.download), limit)]
     rows = {job.download_id: job.download for job in wanted}
     statuses: dict[str, object] = {}
     files: dict[int, list[dict]] = {}
@@ -223,6 +226,7 @@ def _job(session: Session, job_id: int) -> DownloadJob:
     job = session.get(DownloadJob, job_id)
     if job is None or job.removed_at is not None:
         raise HTTPException(404, "unknown download")
+    maturity.require(maturity.media_of(job.download))
     return job
 
 
@@ -342,7 +346,11 @@ async def start_download(
 ):
     from ..services import sources
 
-    # 507 is Insufficient Storage.
+    torrent = session.get(Torrent, torrent_id)
+    if torrent is not None:
+        maturity.require(torrent.media)
+    # Low on space: say so, with what removing finished sources would give
+    # back, rather than quietly filling the disk. 507 is Insufficient Storage.
     needed = _needed_bytes(session, torrent_id, episode, scope == "all")
     if needed:
         shortfall = await sources.space_check(session, needed)

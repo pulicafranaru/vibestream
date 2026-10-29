@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_session
 from ..models import (
     ContinueHidden, Download, Media, MyListItem, Profile, Rating, WatchProgress, utcnow,
@@ -61,8 +62,15 @@ def valid_pin(pin: str | None) -> bool:
     return pin is not None and len(pin) == 4 and pin.isascii() and pin.isdigit()
 
 
+def has_pin(profile: Profile) -> bool:
+    """Under parental controls a kids profile is never asked for one."""
+    return bool(profile.pin_hash) and not (settings.parental_controls and profile.is_kids)
+
+
 def check_pin(profile: Profile, pin: str | None) -> None:
-    if not profile.pin_hash:
+    """Nothing if the profile has no PIN or this is it; otherwise 403, or
+    429 while too many wrong ones in a row are being waited out."""
+    if not has_pin(profile):
         return
     now = time.monotonic()
     wrong, until, lockouts = _FAILURES.get(profile.id, (0, 0.0, 0))
@@ -81,13 +89,20 @@ def check_pin(profile: Profile, pin: str | None) -> None:
 
 
 def serialise(profile: Profile) -> dict:
+    from ..services import maturity
+
+    limit = maturity.ceiling(profile)
     return {
         "id": profile.id,
         "name": profile.name,
         "avatar": profile.avatar,
         "is_kids": profile.is_kids,
         "language": profile.language or "en",
-        "has_pin": bool(profile.pin_hash),
+        "has_pin": has_pin(profile),
+        # Parental controls: an adult profile without a PIN sets one before it is used.
+        "needs_pin": settings.parental_controls and not profile.is_kids and not profile.pin_hash,
+        "max_maturity": limit,
+        "max_maturity_label": maturity.label(limit) if limit is not None else None,
         "last_used_at": profile.last_used_at.isoformat() if profile.last_used_at else None,
     }
 
@@ -122,6 +137,11 @@ def ensure_default_profile(session: Session) -> Profile:
     return profile
 
 
+def refuse_under_controls(what: str) -> None:
+    if settings.parental_controls:
+        raise HTTPException(403, f"parental controls are on: {what} in the admin dashboard")
+
+
 def resolve_profile(
     session: Session, profile_id: int | None
 ) -> Profile:
@@ -145,7 +165,8 @@ def current_profile_id(
 def list_profiles(session: Session = Depends(get_session)):
     ensure_default_profile(session)
     rows = session.scalars(select(Profile).order_by(Profile.id)).all()
-    return {"profiles": [serialise(p) for p in rows], "avatars": avatar_choices()}
+    return {"profiles": [serialise(p) for p in rows], "avatars": avatar_choices(),
+            "parental_controls": settings.parental_controls}
 
 
 @router.post("")
@@ -156,6 +177,12 @@ def create_profile(
     language: str = Query("en"),
     session: Session = Depends(get_session),
 ):
+    refuse_under_controls("profiles are made")
+    return make_profile(session, name, avatar, is_kids, language)
+
+
+def make_profile(session: Session, name: str, avatar: str, is_kids: bool, language: str,
+                 max_maturity: int | None = None) -> dict:
     if avatar not in avatar_choices():
         raise HTTPException(400, "unknown avatar")
     if language not in LANGUAGES:
@@ -164,7 +191,8 @@ def create_profile(
     if not clean:
         raise HTTPException(400, "name cannot be blank")
 
-    profile = Profile(name=clean, avatar=avatar, is_kids=is_kids, language=language)
+    profile = Profile(name=clean, avatar=avatar, is_kids=is_kids, language=language,
+                      max_maturity=max_maturity)
     session.add(profile)
     session.commit()
     return serialise(profile)
@@ -184,7 +212,8 @@ def update_profile(
     if profile is None:
         raise HTTPException(404, "unknown profile")
     check_pin(profile, x_profile_pin)
-    if is_kids is not None:
+    if is_kids is not None and is_kids != profile.is_kids:
+        refuse_under_controls("a kids profile is changed")
         profile.is_kids = is_kids
     if language is not None:
         if language not in LANGUAGES:
@@ -225,6 +254,10 @@ def pin_change(profile_id: int, body: PinChange, session: Session = Depends(get_
         raise HTTPException(404, "unknown profile")
     if body.pin is not None and not valid_pin(body.pin):
         raise HTTPException(422, "a pin is four digits")
+    if settings.parental_controls and profile.is_kids:
+        raise HTTPException(403, "parental controls are on: a kids profile has no PIN")
+    if settings.parental_controls and body.pin is None:
+        raise HTTPException(422, "parental controls are on: an adult profile keeps a PIN")
     check_pin(profile, body.current)
     profile.pin_hash = hash_pin(body.pin) if body.pin is not None else None
     session.commit()
@@ -240,7 +273,15 @@ def delete_profile(
     profile = session.get(Profile, profile_id)
     if profile is None:
         raise HTTPException(404, "unknown profile")
+    if profile.is_kids:
+        refuse_under_controls("a kids profile is removed")
     check_pin(profile, x_profile_pin)
+    remove_profile(session, profile)
+    return {"ok": True}
+
+
+def remove_profile(session: Session, profile: Profile) -> None:
+    profile_id = profile.id
     remaining = session.scalar(select(func.count()).select_from(Profile))
     if remaining <= 1:
         raise HTTPException(400, "cannot delete the only profile")
@@ -251,7 +292,6 @@ def delete_profile(
     from . import cast
 
     cast.forget_profile(profile_id)
-    return {"ok": True}
 
 
 def _forget_profile(session: Session, profile_id: int) -> None:
@@ -335,8 +375,12 @@ def list_my_list(profile_id: int, session: Session = Depends(get_session)):
 def add_to_my_list(profile_id: int, media_id: int, session: Session = Depends(get_session)):
     if session.get(Profile, profile_id) is None:
         raise HTTPException(404, "unknown profile")
-    if session.get(Media, media_id) is None:
+    media = session.get(Media, media_id)
+    if media is None:
         raise HTTPException(404, "unknown media")
+    from ..services import maturity
+
+    maturity.require(media)
     existing = session.scalar(
         select(MyListItem).where(
             MyListItem.profile_id == profile_id, MyListItem.media_id == media_id

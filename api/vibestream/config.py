@@ -74,7 +74,11 @@ class Settings:
     outbound_identity: str = field(default_factory=lambda: _str("OUTBOUND_IDENTITY", "vibestream"))
     # Ask GitHub now and then whether a newer release is out (services/updates.py).
     update_check: bool = field(default_factory=lambda: _bool("UPDATE_CHECK", True))
-    # Addon releases are fetched through TorBox; filelist ones never are.
+    # Parental controls (services/maturity.py): adult profiles need a PIN, only
+    # the admin makes profiles, and kids profiles see titles up to their ceiling.
+    parental_controls: bool = field(default_factory=lambda: _bool("PARENTAL_CONTROLS", False))
+
+    # TorBox (services/torbox.py): addon releases fetched through it, never filelist ones.
     torbox_api_key: str = field(default_factory=lambda: _str("TORBOX_API_KEY"))
 
     tmdb_api_key: str = field(default_factory=lambda: _str("TMDB_API_KEY"))

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session, kv_get, kv_set
 from ..models import Download, DownloadState, Episode, Media, utcnow
+from ..services import maturity
 from ..services.tmdb import backdrop_url, poster_url
 
 router = APIRouter(prefix="/api", tags=["notifications"])
@@ -72,7 +73,7 @@ def notifications(
             Download.state != DownloadState.removed.value,
         )
     )
-    for download in ready:
+    for download in maturity.downloads(ready):
         media, name = _title(session, download)
         items.append({
             "id": f"ready-{download.id}",
@@ -92,7 +93,7 @@ def notifications(
             Download.state != DownloadState.removed.value,
         )
     )
-    for download in failed:
+    for download in maturity.downloads(failed):
         media, name = _title(session, download)
         preparing = download.prepare_error is not None
         at = download.completed_at or download.added_at or download.requested_at
@@ -113,6 +114,7 @@ def notifications(
             Media.created_at > now - timedelta(days=ARRIVAL_DAYS),
             Media.backdrop_path.is_not(None),
             Media.title != "",
+            maturity.clause(maturity.current()),
         )
         .order_by(Media.popularity.desc().nulls_last())
         .limit(ARRIVAL_LIMIT)

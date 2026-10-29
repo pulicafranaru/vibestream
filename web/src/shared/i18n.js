@@ -233,6 +233,9 @@ const DICT = {
     'Enter your PIN': 'Gib deine PIN ein', 'Enter the PIN to edit this profile': 'Gib die PIN ein, um dieses Profil zu bearbeiten',
     'Choose a PIN': 'Wähle eine PIN', 'Enter it again': 'Gib sie noch einmal ein',
     'Four digits, asked for when someone chooses this profile.': 'Vier Ziffern, abgefragt, wenn jemand dieses Profil wählt.',
+    'Parental controls are on, so every adult profile has a PIN. Four digits, asked for when someone chooses this profile.':
+      'Die Kindersicherung ist an, daher hat jedes Erwachsenenprofil eine PIN. Vier Ziffern, abgefragt, wenn jemand dieses Profil wählt.',
+    'Locked by parental controls': 'Durch die Kindersicherung gesperrt',
     'Wrong PIN. Try again.': 'Falsche PIN. Versuch es noch einmal.', 'That does not match. Try again.': 'Das stimmt nicht überein. Versuch es noch einmal.',
     'Too many tries. Wait 30 seconds.': 'Zu viele Versuche. Warte 30 Sekunden.', 'Could not check it. Try again.': 'Konnte nicht geprüft werden. Versuch es noch einmal.',
     'Profile PIN': 'Profil-PIN', 'Profile PIN: On': 'Profil-PIN: An', 'Profile PIN: Off': 'Profil-PIN: Aus',
@@ -447,6 +450,9 @@ const DICT = {
     'Enter your PIN': 'Introdu PIN-ul', 'Enter the PIN to edit this profile': 'Introdu PIN-ul ca să editezi acest profil',
     'Choose a PIN': 'Alege un PIN', 'Enter it again': 'Introdu-l din nou',
     'Four digits, asked for when someone chooses this profile.': 'Patru cifre, cerute când cineva alege acest profil.',
+    'Parental controls are on, so every adult profile has a PIN. Four digits, asked for when someone chooses this profile.':
+      'Controlul parental este activ, așa că fiecare profil de adult are un PIN. Patru cifre, cerute când cineva alege acest profil.',
+    'Locked by parental controls': 'Blocat de controlul parental',
     'Wrong PIN. Try again.': 'PIN greșit. Încearcă din nou.', 'That does not match. Try again.': 'Nu se potrivește. Încearcă din nou.',
     'Too many tries. Wait 30 seconds.': 'Prea multe încercări. Așteaptă 30 de secunde.', 'Could not check it. Try again.': 'Nu s-a putut verifica. Încearcă din nou.',
     'Profile PIN': 'PIN profil', 'Profile PIN: On': 'PIN profil: Activat', 'Profile PIN: Off': 'PIN profil: Dezactivat',

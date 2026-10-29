@@ -58,7 +58,7 @@ const Tile = memo(
 
     return (
       <div
-        className={`tile ${focused ? 'focused' : ''} ${wide ? 'wide' : ''}`}
+        className={`tile ${focused ? 'focused' : ''} ${wide ? 'wide' : ''} ${card.locked ? 'locked' : ''}`}
         ref={(el) => setRef(rowIndex, colIndex, el)}
         onMouseEnter={() => onHover(rowIndex, colIndex)}
         onClick={() => onOpen(card)}
@@ -79,7 +79,9 @@ const Tile = memo(
           <div className="tile-fallback">{card.title}</div>
         )}
 
-        {card.best_resolution === '2160p' && !wide && <span className="tile-chip uhd">4K</span>}
+        {card.locked && <span className="tile-lock"><Icon name="lock" size={40} /></span>}
+        {card.best_resolution === '2160p' && !wide && !card.locked && <span className="tile-chip uhd">4K</span>}
+        {/* On the server already: plays now, nothing to fetch. */}
         {dl && dl.playable && !active && <span className="tile-ready" />}
 
         {(active || preparing) && (
@@ -111,6 +113,14 @@ const Tile = memo(
 
 function Caption({ card, row }) {
   if (!card) return <div className="row-caption" />
+  if (card.locked) {
+    return (
+      <div className="row-caption">
+        <div className="cap-line">{card.title}</div>
+        <div className="cap-meta">{t('Locked by parental controls')}</div>
+      </div>
+    )
+  }
   if (row.id === 'continue') {
     const left = timeLeft(card)
     return (

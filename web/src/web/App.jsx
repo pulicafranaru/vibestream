@@ -21,6 +21,8 @@ export default function App() {
   const [route, setRoute] = useState(() => parseLocation())
   const [profile, setProfile] = useState(null)
   const [profiles, setProfiles] = useState([])
+  // Parental controls: the admin makes profiles, and adults keep a PIN.
+  const [guarded, setGuarded] = useState(false)
   const [ratings, setRatings] = useState({})
   const [myList, setMyList] = useState(() => new Set())
   const [downloads, setDownloads] = useState({})
@@ -75,10 +77,12 @@ export default function App() {
       const data = await api.profiles().catch(() => ({ profiles: [] }))
       const list = data.profiles || []
       setProfiles(list)
+      setGuarded(!!data.parental_controls)
       if (!select) return list
       const stored = Number(localStorage.getItem(PROFILE_KEY))
       const match = list.find((p) => p.id === stored)
-      if (match) chooseProfile(match)
+      // One that has to choose a PIN first goes through the picker.
+      if (match && !match.needs_pin) chooseProfile(match)
       return list
     },
     [chooseProfile],
@@ -89,6 +93,7 @@ export default function App() {
   }, [loadProfiles])
 
   const ownProfile = useProfileEditor({
+    guarded,
     onSaved: async (saved, opened) => {
       const list = await loadProfiles(false)
       if (!saved) chooseProfile(null)
@@ -328,6 +333,7 @@ export default function App() {
     return (
       <ProfileGate
         profiles={profiles}
+        guarded={guarded}
         onChoose={chooseProfile}
         onChanged={() => loadProfiles(false)}
       />

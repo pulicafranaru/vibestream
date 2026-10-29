@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..models import (
     Download, Episode, EpisodeProgress, Media, Torrent, WatchProgress, utcnow,
 )
+from . import maturity
 from .coverage import ranked_popularity, watchable
 
 FEATURED_GENRES = [
@@ -46,11 +47,13 @@ def _media_with_releases(session: Session, stmt) -> list[tuple[Media, list[Torre
     return [(m, by_media.get(m.id, [])) for m in media_rows if by_media.get(m.id)]
 
 
-def _base_query(media_type: str | None = None):
+def _base_query(media_type: str | None = None, screened: bool = True):
     stmt = (
         select(Media)
         .where(Media.enrich_status == "ok", Media.poster_path.is_not(None))
     )
+    if screened:
+        stmt = stmt.where(maturity.clause(maturity.current()))
     if media_type:
         stmt = stmt.where(Media.media_type == media_type)
     return stmt
@@ -187,6 +190,8 @@ def continue_watching(session: Session, media_type: str | None = None,
             continue
         if media_type and media.media_type != media_type:
             continue
+        if not maturity.allowed(media, maturity.current()):
+            continue
         seen_media.add(media.id)
         out.append((media, [torrent], extra))
         if len(out) >= limit:
@@ -198,8 +203,9 @@ def my_list(session: Session, profile_id: int, media_type: str | None = None,
             limit: int | None = DEFAULT_ROW_SIZE):
     from ..models import MyListItem
 
+    # Unscreened: a title above a kids profile's ceiling stays, shown locked.
     stmt = (
-        _base_query(media_type)
+        _base_query(media_type, screened=False)
         .join(MyListItem, MyListItem.media_id == Media.id)
         .where(MyListItem.profile_id == profile_id)
         .order_by(MyListItem.added_at.desc())
@@ -353,7 +359,8 @@ def available_genres(session: Session, minimum: int = MIN_ROW_ITEMS) -> list[str
     counts: dict[str, int] = {}
     for (raw,) in session.execute(
         select(Media.genres).where(
-            Media.genres.is_not(None), Media.enrich_status == "ok"
+            Media.genres.is_not(None), Media.enrich_status == "ok",
+            maturity.clause(maturity.current()),
         )
     ):
         try:

@@ -127,6 +127,11 @@ struct Card: Codable, Hashable, Identifiable, Sendable {
     var resumeKind: String?
     var started: Bool?
     var addedAt: String?
+    /// Above a kids profile's ceiling, kept on its watchlist: shown dimmed
+    /// with a lock, never opened or played.
+    var locked: Bool?
+    /// What TMDB says about it, for the About tab. Only the title page's own
+    /// request carries these.
     var facts: Facts?
 
     struct Facts: Codable, Sendable, Hashable {
@@ -170,7 +175,7 @@ struct Card: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case title, year, overview, tagline, runtime, genres, poster, backdrop
-        case quality, releases, download, started, facts
+        case quality, releases, download, started, facts, locked
         case addedAt = "added_at"
         case mediaID = "media_id"
         case mediaType = "media_type"
@@ -189,6 +194,7 @@ struct Card: Codable, Hashable, Identifiable, Sendable {
     }
 
     var isSeries: Bool { mediaType == "tv" }
+    var isLocked: Bool { locked ?? false }
 
     var resumeTitle: String {
         guard let label = resumeLabel else { return title }
@@ -764,18 +770,37 @@ struct Profile: Codable, Hashable, Identifiable, Sendable {
     var name: String
     var avatar: String?
     var hasPin: Bool?
+    var isKids: Bool?
+    /// Parental controls: an adult without a PIN chooses one before it is used.
+    var needsPin: Bool?
+    /// A kids profile's ceiling under parental controls, as words ("7+").
+    var maxMaturityLabel: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, avatar
         case hasPin = "has_pin"
+        case isKids = "is_kids"
+        case needsPin = "needs_pin"
+        case maxMaturityLabel = "max_maturity_label"
     }
 
     var locked: Bool { hasPin ?? false }
+    var kids: Bool { isKids ?? false }
+    var mustChoosePin: Bool { needsPin ?? false }
 }
 
 struct ProfileList: Codable, Sendable {
     var profiles: [Profile]
+    /// Parental controls: profiles are made in the admin, adults keep a PIN.
+    var parentalControls: Bool?
+    /// Every avatar id the server will accept. Sent with the list so the
+    /// client picker can never offer one that fails to save.
     var avatars: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case profiles, avatars
+        case parentalControls = "parental_controls"
+    }
 }
 
 struct EpisodeAbout: Codable, Sendable {

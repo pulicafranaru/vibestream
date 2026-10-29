@@ -236,7 +236,12 @@ async def play_info(
     profile_id: int | None = Depends(current_profile_id),
     session: Session = Depends(get_session),
 ):
+    """Everything the player UI needs before it starts: tracks and capability."""
+    from ..services import maturity
+
     target = _load(session, play_id)
+    # Every app asks this first: a title above a kids profile's ceiling does not start.
+    maturity.require(target.episode.media if target.episode else maturity.media_of(target.download))
     path = target.path
     info = await _info(path)
 

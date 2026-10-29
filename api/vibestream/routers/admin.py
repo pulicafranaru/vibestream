@@ -487,11 +487,93 @@ class DeviceChange(BaseModel):
     owner_id: int | None = None
 
 
+class NewProfile(BaseModel):
+    name: str
+    avatar: str = "crimson-smile"
+    is_kids: bool = False
+    language: str = "en"
+    max_maturity: int | None = None
+
+
+class ProfileChange(BaseModel):
+    is_kids: bool | None = None
+    max_maturity: int | None = None
+
+
+class AdminPin(BaseModel):
+    pin: str
+
+
+def _ceiling(value: int | None) -> int | None:
+    from ..services import maturity
+
+    if value is not None and value not in maturity.CEILINGS:
+        raise HTTPException(422, "not one of the maturity levels")
+    return value
+
+
 @locked.get("/profiles")
 def admin_profiles(session: Session = Depends(get_session)):
+    from ..services import maturity
+    from .profiles import avatar_choices, serialise
+
+    return {"profiles": [serialise(p) for p in session.scalars(select(Profile).order_by(Profile.id))],
+            "levels": [{"value": age, "label": name} for age, name in maturity.LEVELS],
+            "default_level": maturity.DEFAULT_KIDS_CEILING,
+            "avatars": avatar_choices(),
+            "parental_controls": settings.parental_controls}
+
+
+@locked.post("/profiles")
+def admin_make_profile(body: NewProfile, session: Session = Depends(get_session)):
+    """The one way to make a profile while parental controls are on."""
+    from .profiles import make_profile
+
+    return make_profile(session, body.name, body.avatar, body.is_kids, body.language,
+                        _ceiling(body.max_maturity) if body.is_kids else None)
+
+
+@locked.patch("/profiles/{profile_id}")
+def admin_change_profile(profile_id: int, body: ProfileChange, session: Session = Depends(get_session)):
+    """Whether a profile is a kids one, and a kids profile's maturity ceiling."""
     from .profiles import serialise
 
-    return {"profiles": [serialise(p) for p in session.scalars(select(Profile).order_by(Profile.id))]}
+    profile = session.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(404, "unknown profile")
+    if body.is_kids is not None:
+        profile.is_kids = body.is_kids
+    if "max_maturity" in body.model_fields_set:
+        profile.max_maturity = _ceiling(body.max_maturity)
+    session.commit()
+    return serialise(profile)
+
+
+@locked.put("/profiles/{profile_id}/pin")
+def admin_set_pin(profile_id: int, body: AdminPin, session: Session = Depends(get_session)):
+    """Give an adult profile a PIN without knowing the one it had."""
+    from . import profiles
+
+    profile = session.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(404, "unknown profile")
+    if not profiles.valid_pin(body.pin):
+        raise HTTPException(422, "a pin is four digits")
+    profile.pin_hash = profiles.hash_pin(body.pin)
+    session.commit()
+    profiles._FAILURES.pop(profile_id, None)
+    return profiles.serialise(profile)
+
+
+@locked.delete("/profiles/{profile_id}")
+def admin_remove_profile(profile_id: int, session: Session = Depends(get_session)):
+    from .profiles import remove_profile
+
+    profile = session.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(404, "unknown profile")
+    remove_profile(session, profile)
+    return {"ok": True}
 
 
 @locked.delete("/profiles/{profile_id}/pin")

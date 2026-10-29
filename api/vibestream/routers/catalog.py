@@ -16,7 +16,7 @@ from ..db import get_session
 from ..models import Download, Episode, EpisodeProgress, Media, Season, Torrent
 from ..schemas import download_summary, media_card, torrent_summary
 from ..services.coverage import ranked_popularity, title_weight
-from ..services import stills
+from ..services import maturity, stills
 from ..services.tmdb import poster_url
 from .profiles import current_profile_id
 
@@ -162,6 +162,9 @@ def _browse_query(
         stmt = stmt.join(Download, Download.torrent_id == Torrent.id).where(
             Download.state != "removed"
         )
+    limit = maturity.current()
+    if limit is not None:
+        stmt = stmt.where(maturity.clause(limit))
     return stmt
 
 
@@ -312,6 +315,7 @@ async def episode_about(episode_id: int, session: Session = Depends(get_session)
     episode = session.get(Episode, episode_id)
     if episode is None:
         raise HTTPException(404, "no such episode")
+    maturity.require(episode.media)
     return await about(session, episode)
 
 
@@ -381,7 +385,7 @@ def _pick_hero(payload_rows: list[dict]) -> dict | None:
     for row in payload_rows:
         weight = 0.6 if row["id"] in _WEAK_HERO_ROWS else 1.0
         for position, card in enumerate(row["items"][:10]):
-            if not card.get("backdrop") or not card.get("overview"):
+            if not card.get("backdrop") or not card.get("overview") or card.get("locked"):
                 continue
             key = card.get("media_id") or card.get("primary_release_id")
             if key in seen:
@@ -456,6 +460,10 @@ async def media_detail(
     media = session.get(Media, media_id)
     if media is None:
         raise HTTPException(404, "unknown media")
+    maturity.require(media)
+    # The page is the one place these are shown, so a title that has not had them collected yet gets
+    # them now rather than whenever the backfill reaches it. One request; a failure only means a
+    # plainer page. Also a title detailed before the whole cast was kept, for the About tab.
     stale = media.facts is None or '"person_ids"' not in media.facts
     if stale and media.tmdb_id and settings.tmdb_configured:
         from ..services.tmdb import refresh_facts
@@ -558,6 +566,7 @@ def similar(
     media = session.get(Media, media_id)
     if media is None:
         raise HTTPException(404, "unknown media")
+    maturity.require(media)
 
     def names(raw: str | None) -> set[str]:
         try:
@@ -603,6 +612,9 @@ def similar(
 
 
 def _cards(session: Session, medias: list[Media]) -> list[dict]:
+    """Tiles for these titles, in this order, with their releases and downloads."""
+    limit = maturity.current()
+    medias = [m for m in medias if maturity.allowed(m, limit)]
     torrents: dict[int, list[Torrent]] = {}
     for torrent in session.scalars(
         select(Torrent).where(Torrent.media_id.in_([m.id for m in medias]))
@@ -687,6 +699,7 @@ async def season_detail(
     media = session.get(Media, media_id)
     if media is None:
         raise HTTPException(404, "unknown media")
+    maturity.require(media)
 
     season = None
     missing_since = _missing_seasons.get((media_id, number))
@@ -938,6 +951,8 @@ def _covering_download(
 @router.get("/release/{torrent_id}")
 def release_detail(torrent_id: int, session: Session = Depends(get_session)):
     torrent = session.get(Torrent, torrent_id)
+    if torrent is not None:
+        maturity.require(torrent.media)
     if torrent is None:
         raise HTTPException(404, "unknown release")
     downloads = _downloads_for(session, [torrent_id])

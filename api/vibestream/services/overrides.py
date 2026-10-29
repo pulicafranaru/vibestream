@@ -63,6 +63,7 @@ FIELDS: dict[str, Field] = {f.key: f for f in [
     Field("torbox_api_key", "secret"),
     Field("outbound_identity", "choice", choices=("vibestream", "browser")),
     Field("update_check", "bool"),
+    Field("parental_controls", "bool"),
     Field("tmdb_api_key", "secret"),
     Field("tmdb_language", "choice", choices=TMDB_LANGUAGES),
     Field("movies_dir", "path"),

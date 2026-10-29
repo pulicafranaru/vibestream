@@ -7,6 +7,8 @@ import SwiftUI
 @Observable
 final class AppState {
     var profiles: [Profile] = []
+    /// Parental controls: profiles are made in the admin, adults keep a PIN.
+    var guarded = false
     var profile: Profile?
     var needsProfilePick = false
     /// Shared, so opening any tab's bell clears the dot on all of them.
@@ -46,6 +48,7 @@ final class AppState {
             let response = try await APIClient.shared.profiles()
             let list = response.profiles
             profiles = list
+            guarded = response.parentalControls ?? false
             if let choices = response.avatars, !choices.isEmpty { avatarChoices = choices }
             if keepingSelection {
                 if let current = profile, let fresh = list.first(where: { $0.id == current.id }) {
@@ -71,9 +74,12 @@ final class AppState {
             }
             #endif
             let stored = UserDefaults.standard.integer(forKey: storedProfileKey)
-            if let found = list.first(where: { $0.id == stored }) {
+            // One that has to choose a PIN first goes through the picker.
+            if let found = list.first(where: { $0.id == stored }), !found.mustChoosePin {
                 await pick(found)
-            } else if list.count == 1, !list[0].locked {
+            } else if list.count == 1, !list[0].locked, !list[0].mustChoosePin {
+                // Remembered above, a profile needs no PIN again; the only
+                // one is taken without asking, unless it has one.
                 await pick(list[0])
             } else {
                 needsProfilePick = true

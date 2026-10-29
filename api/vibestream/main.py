@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from . import VERSION
 from .config import settings
 from .db import init_db, record_event, session_scope
+from .services.maturity import Screen
 from .services import adminauth, overrides
 from .services import jobs, live, preparation
 from .routers import admin, cast, catalog, clips, diag, downloads, notifications, player, profiles
@@ -77,6 +78,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
 )
+
+# The asking profile's maturity ceiling, under parental controls.
+app.add_middleware(Screen)
 
 app.include_router(catalog.router)
 app.include_router(downloads.router)

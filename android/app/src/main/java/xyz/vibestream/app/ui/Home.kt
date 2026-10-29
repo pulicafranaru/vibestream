@@ -114,7 +114,7 @@ fun HomeView(kind: String, nav: Navigator) {
     LaunchedEffect(rows.size) {
         if (Debug.has("scrollEnd") && rows.isNotEmpty()) list.scrollToItem(rows.size + 2)
     }
-    Box(Modifier.fillMaxSize()) {
+    Refreshable({ AppState.loadFeed() }, Modifier.fillMaxSize()) {
         LazyColumn(
             state = list,
             verticalArrangement = Arrangement.spacedBy(22.dp),
@@ -131,7 +131,7 @@ fun HomeView(kind: String, nav: Navigator) {
                 if (row.id == "continue") {
                     item(row.id) {
                         CardRow("Resume Watching", row.items) { card ->
-                            ContinueCard(card, width * 1.2f, onPlay = { resume(card, nav) }, onInfo = { nav.open(card) })
+                            ContinueCard(card, width * 1.2f, onPlay = { resume(card, nav) })
                         }
                     }
                     item("chips") { Chips(genres) { destination = BrowseTarget.Category(it, kind) } }
@@ -186,7 +186,6 @@ fun Empty(text: String) {
 @Composable
 fun HeroSection(card: Card, nav: Navigator) {
     var queuing by remember { mutableStateOf(false) }
-    var note by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val live = card.primaryReleaseID?.let { AppState.downloads[it] } ?: card.download
 
@@ -207,16 +206,14 @@ fun HeroSection(card: Card, nav: Navigator) {
             onDownload = {
                 val torrent = card.primaryReleaseID ?: return@HeroCard
                 queuing = true
-                note = null
                 scope.launch {
-                    runCatching { AppState.download(torrent) }.onFailure { note = it.message }
+                    runCatching { AppState.download(torrent) }.onFailure { Toasts.error(it.said()) }
                     queuing = false
                 }
             },
             onInfo = { nav.open(card) },
             onMyList = { AppState.toggleMyList(card) },
         )
-        note?.let { Text(it, fontSize = 13.sp, color = Palette.dim) }
     }
 }
 

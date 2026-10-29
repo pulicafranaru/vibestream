@@ -10,6 +10,8 @@ object Palette {
     val accent = Color(0xFFFF6A00)
     val ember = listOf(Color(0xFFFFB000), Color(0xFFFF6A00), Color(0xFFFF2E63))
     val good = Color(0xFFFFB000)
+    /** Something went wrong: the error badge and a failed episode. */
+    val danger = Color(0xFFE5322D)
     val ground = Color(0xFF0E0A08)
     val dim = Color(0xFFB8B8B8)
     val faint = Color(0xFF7D7D7D)

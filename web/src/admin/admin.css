@@ -586,6 +586,21 @@ select.input { appearance: none; padding-right: 34px; background-image: linear-g
   letter-spacing: 0.02em;
 }
 
+/* People: one profile, and the form that adds one. */
+.profile-card {
+  position: relative;
+  padding: 22px 16px 16px;
+  background: var(--panel-2);
+  text-align: center;
+}
+
+.profile-card.new { border-style: dashed; }
+.profile-kind { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.profile-kind .input { height: 32px; font-size: 13px; }
+.profile-remove { position: absolute; top: 8px; right: 8px; }
+.pin-form { display: flex; gap: 6px; justify-content: center; }
+.pin-form .input { width: 92px; height: 30px; text-align: center; letter-spacing: 0.2em; }
+
 .badge.ember { background: rgba(255, 106, 0, 0.14); color: #ff9a52; }
 .badge.good { background: rgba(79, 209, 139, 0.14); color: var(--good); }
 .badge.bad { background: rgba(255, 90, 110, 0.14); color: var(--bad); }

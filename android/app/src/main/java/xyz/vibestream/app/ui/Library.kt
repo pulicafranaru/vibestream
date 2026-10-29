@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.LibraryAdd
 import androidx.compose.material.icons.outlined.PlayCircle
@@ -36,6 +37,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -91,71 +96,74 @@ fun LibraryView(nav: Navigator) {
 
     val list = rememberLazyListState()
     ReportScrolledUnder(list)
-    LazyColumn(state = list, verticalArrangement = Arrangement.spacedBy(24.dp), contentPadding = PaddingValues(top = LocalTopClearance.current, bottom = 24.dp + TabBarClearance)) {
-        if (continueRow.isNotEmpty()) item {
-            CardRow("Resume Watching", continueRow) { card ->
-                ContinueCard(card, width * 1.2f, onPlay = {
-                    card.resumePlayID?.let { nav.play(PlayRequest(it, card.title)) } ?: nav.open(card)
-                }, onInfo = { nav.open(card) })
-            }
-        }
-        if (myList.isNotEmpty()) item {
-            CardRow("Watchlist", myList, trailing = {
-                Row(Modifier.pressable { showingMyList = true }, verticalAlignment = Alignment.CenterVertically) {
-                    Text("See All", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White, modifier = Modifier.size(18.dp))
+    Refreshable({ AppState.loadFeed(); AppState.loadMyList(); AppState.loadClips() }, Modifier.fillMaxSize()) {
+        LazyColumn(state = list, verticalArrangement = Arrangement.spacedBy(24.dp), contentPadding = PaddingValues(top = LocalTopClearance.current, bottom = 24.dp + TabBarClearance)) {
+            if (continueRow.isNotEmpty()) item {
+                CardRow("Resume Watching", continueRow) { card ->
+                    ContinueCard(card, width * 1.2f, onPlay = {
+                        card.resumePlayID?.let { nav.play(PlayRequest(it, card.title)) } ?: nav.open(card)
+                    })
                 }
-            }) { card -> PosterCard(card, width) { nav.open(card) } }
-        }
-        if (watchAgain.isNotEmpty()) item {
-            CardRow("Watch It Again", watchAgain) { card -> PosterCard(card, width) { nav.open(card) } }
-        }
-        if (AppState.clips.isNotEmpty()) item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Clips you've saved", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                    modifier = Modifier.padding(horizontal = 16.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(Metrics.rowSpacing), contentPadding = PaddingValues(horizontal = 16.dp)) {
-                    items(AppState.clips, key = { it.id }) { clip ->
-                        ClipCard(clip, width * 1.6f, onPlay = { playingClip = clip }, onVertical = { framingClip = clip },
-                            onDelete = { AppState.deleteClip(clip) })
+            }
+            if (myList.isNotEmpty()) item {
+                CardRow("Watchlist", myList, trailing = {
+                    Row(Modifier.pressable { showingMyList = true }, verticalAlignment = Alignment.CenterVertically) {
+                        Text("See All", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White, modifier = Modifier.size(18.dp))
                     }
-                }
+                }) { card -> PosterCard(card, width) { nav.open(card) } }
             }
-        }
-        if (library.isNotEmpty()) item {
-            CardRow("Ready to Play", library) { card -> PosterCard(card, width) { nav.open(card) } }
-        }
-        if (arriving.isNotEmpty()) item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("On its way to the server", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                    modifier = Modifier.padding(horizontal = 16.dp))
-                arriving.forEach { d ->
-                    val title = AppState.rows.flatMap { it.items }.firstOrNull { c ->
-                        c.primaryReleaseID == d.torrentID || c.releases.orEmpty().any { it.id == d.torrentID }
-                    }?.title ?: "Download"
-                    Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DownloadRing(if (d.isWorking && d.percent >= 1) d.percent else null, 34.dp)
-                        Column {
-                            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
-                            Text(if (d.isPreparing) "Preparing" else if (d.percent >= 1) "Downloading ${d.percent.toInt()}%" else "Waiting",
-                                fontSize = 12.sp, color = Palette.faint)
+            if (watchAgain.isNotEmpty()) item {
+                CardRow("Watch It Again", watchAgain) { card -> PosterCard(card, width) { nav.open(card) } }
+            }
+            if (AppState.clips.isNotEmpty()) item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Clips you've saved", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(Metrics.rowSpacing), contentPadding = PaddingValues(horizontal = 16.dp)) {
+                        items(AppState.clips, key = { it.id }) { clip ->
+                            ClipCard(clip, width * 1.6f, onPlay = { playingClip = clip }, onVertical = { framingClip = clip },
+                                onDelete = { AppState.deleteClip(clip) })
                         }
                     }
                 }
             }
-        }
-        if (continueRow.isEmpty() && myList.isEmpty() && watchAgain.isEmpty() && library.isEmpty() && arriving.isEmpty() && AppState.clips.isEmpty()) {
-            item {
-                if (AppState.loading && AppState.feed == null) {
-                    Box(Modifier.fillMaxWidth().padding(top = 80.dp), contentAlignment = Alignment.Center) { BootSpinner() }
-                } else {
-                    Column(Modifier.fillMaxWidth().padding(top = 80.dp, start = 32.dp, end = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Outlined.VideoLibrary, null, tint = Palette.faint, modifier = Modifier.size(36.dp))
-                        Text("Nothing here yet", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text("Titles you download, and anything you start watching, show up here.", fontSize = 15.sp,
-                            color = Palette.dim, textAlign = TextAlign.Center)
+            if (library.isNotEmpty()) item {
+                CardRow("Ready to Play", library) { card -> PosterCard(card, width) { nav.open(card) } }
+            }
+            // Downloads are to the server, not the phone: a status list.
+            if (arriving.isNotEmpty()) item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("On its way to the server", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    arriving.forEach { d ->
+                        val title = AppState.rows.flatMap { it.items }.firstOrNull { c ->
+                            c.primaryReleaseID == d.torrentID || c.releases.orEmpty().any { it.id == d.torrentID }
+                        }?.title ?: "Download"
+                        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DownloadRing(if (d.isWorking && d.percent >= 1) d.percent else null, 34.dp)
+                            Column {
+                                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+                                Text(if (d.isPreparing) "Preparing" else if (d.percent >= 1) "Downloading ${d.percent.toInt()}%" else "Waiting",
+                                    fontSize = 12.sp, color = Palette.faint)
+                            }
+                        }
+                    }
+                }
+            }
+            if (continueRow.isEmpty() && myList.isEmpty() && watchAgain.isEmpty() && library.isEmpty() && arriving.isEmpty() && AppState.clips.isEmpty()) {
+                item {
+                    if (AppState.loading && AppState.feed == null) {
+                        Box(Modifier.fillMaxWidth().padding(top = 80.dp), contentAlignment = Alignment.Center) { BootSpinner() }
+                    } else {
+                        Column(Modifier.fillMaxWidth().padding(top = 80.dp, start = 32.dp, end = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Outlined.VideoLibrary, null, tint = Palette.faint, modifier = Modifier.size(36.dp))
+                            Text("Nothing here yet", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("Titles you download, and anything you start watching, show up here.", fontSize = 15.sp,
+                                color = Palette.dim, textAlign = TextAlign.Center)
+                        }
                     }
                 }
             }
@@ -229,9 +237,16 @@ private fun MyListView(nav: Navigator, onBack: () -> Unit) {
     var sortOpen by remember { mutableStateOf(false) }
     val wide = isWide()
 
-    LaunchedEffect(AppState.myList.size) {
+    suspend fun load() {
         runCatching { Api.myList() }.getOrNull()?.let { items = it }
         loaded = true
+    }
+    // Read again only when something was added: a removal is already
+    // filtered out below, and reading again for it made the list jump.
+    var known by remember { mutableStateOf(AppState.myList) }
+    LaunchedEffect(AppState.myList) {
+        if (!loaded || (AppState.myList - known).isNotEmpty()) load()
+        known = AppState.myList
     }
     val filtered = items.filter { c ->
         c.mediaID in AppState.myList && (kind == null || c.mediaType == kind) && (started == null || (c.started ?: false) == started)
@@ -244,56 +259,78 @@ private fun MyListView(nav: Navigator, onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         PushedBar("Watchlist", onBack)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp + TabBarClearance)) {
-            item {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item { FilterChip("TV Shows", kind == "tv") { kind = if (kind == "tv") null else "tv" } }
-                        item { FilterChip("Movies", kind == "movie") { kind = if (kind == "movie") null else "movie" } }
-                        item { FilterChip("Haven't Started", started == false) { started = if (started == false) null else false } }
-                        item { FilterChip("Started", started == true) { started = if (started == true) null else true } }
-                    }
-                    Box {
-                        Column(Modifier.pressable { sortOpen = true }) {
-                            Text("Sort By", fontSize = 12.sp, color = Palette.dim)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(sort, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                Icon(Icons.Filled.KeyboardArrowDown, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
+        Refreshable({ load() }, Modifier.fillMaxSize()) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp + TabBarClearance)) {
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item { FilterChip("TV Shows", kind == "tv") { kind = if (kind == "tv") null else "tv" } }
+                            item { FilterChip("Movies", kind == "movie") { kind = if (kind == "movie") null else "movie" } }
+                            item { FilterChip("Haven't Started", started == false) { started = if (started == false) null else false } }
+                            item { FilterChip("Started", started == true) { started = if (started == true) null else true } }
                         }
-                        DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }, containerColor = Color(0xFF242424)) {
-                            listOf("Recently Added", "A to Z", "Release Year").forEach { option ->
-                                DropdownMenuItem(text = { Text(option) }, onClick = { sort = option; sortOpen = false })
+                        Box {
+                            Column(Modifier.pressable { sortOpen = true }) {
+                                Text("Sort By", fontSize = 12.sp, color = Palette.dim)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(sort, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }, containerColor = Color(0xFF242424)) {
+                                listOf("Recently Added", "A to Z", "Release Year").forEach { option ->
+                                    DropdownMenuItem(text = { Text(option) }, onClick = { sort = option; sortOpen = false })
+                                }
                             }
                         }
                     }
                 }
-            }
-            items(shown, key = { it.mediaID }) { card ->
-                val art = if (wide) 240.dp else 150.dp
-                Row(Modifier.fillMaxWidth().pressable { nav.open(card) }.padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    RemoteImage(card.backdrop ?: card.poster, Modifier.width(art).height(art * 9 / 16).clip(RoundedCornerShape(6.dp)))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(card.title, fontSize = if (wide) 19.sp else 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(listOfNotNull(card.year?.toString(), if (card.isSeries) "Series" else "Film",
-                            if (card.started == true) "Started" else null).joinToString(" · "), fontSize = 12.sp, color = Palette.dim)
+                if (!loaded) item {
+                    Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) { BootSpinner(32.dp, 3.dp) }
+                }
+                items(shown, key = { it.mediaID }) { card ->
+                    val art = if (wide) 240.dp else 150.dp
+                    // Swiped away, it leaves the Watchlist, as on iOS.
+                    val swipe = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
+                        if (value == SwipeToDismissBoxValue.EndToStart) AppState.toggleMyList(card)
+                        value == SwipeToDismissBoxValue.EndToStart
+                    })
+                    SwipeToDismissBox(swipe, enableDismissFromStartToEnd = false, backgroundContent = {
+                        Box(Modifier.fillMaxSize().background(Palette.danger).padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
+                            Text("Remove", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                    }) {
+                    Row(Modifier.fillMaxWidth().background(Palette.ground).pressable { nav.open(card) }.padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            RemoteImage(card.backdrop ?: card.poster, Modifier.width(art).height(art * 9 / 16).clip(RoundedCornerShape(6.dp))
+                                .alpha(if (card.locked == true) 0.35f else 1f),
+                                colorFilter = if (card.locked == true) androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+                                    androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0.4f) }) else null)
+                            if (card.locked == true) LockBadge(16.dp)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(card.title, fontSize = if (wide) 19.sp else 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(if (card.locked == true) "Locked by parental controls" else listOfNotNull(card.year?.toString(), if (card.isSeries) "Series" else "Film",
+                                if (card.started == true) "Started" else null).joinToString(" · "), fontSize = 12.sp, color = Palette.dim)
+                        }
+                        val film = if (card.isSeries || card.locked == true) null else card.playableDownloadID
+                        if (film != null) {
+                            Icon(Icons.Outlined.PlayCircle, "Play ${card.title}", tint = Color.White,
+                                modifier = Modifier.size(36.dp).pressable { nav.play(PlayRequest(film.toString(), card.title)) })
+                        }
                     }
-                    val film = if (card.isSeries) null else card.playableDownloadID
-                    if (film != null) {
-                        Icon(Icons.Outlined.PlayCircle, "Play ${card.title}", tint = Color.White,
-                            modifier = Modifier.size(36.dp).pressable { nav.play(PlayRequest(film.toString(), card.title)) })
                     }
                 }
-            }
-            if (loaded && shown.isEmpty()) item {
-                Column(Modifier.fillMaxWidth().padding(top = 60.dp), horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Outlined.LibraryAdd, null, tint = Palette.faint, modifier = Modifier.size(36.dp))
-                    Text(if (items.isEmpty()) "Your list is empty" else "Nothing matches these filters", fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold, color = Color.White)
-                    if (items.isEmpty()) Text("Tap Watchlist on any title to save it here for later.", fontSize = 15.sp, color = Palette.dim)
+                if (loaded && shown.isEmpty()) item {
+                    Column(Modifier.fillMaxWidth().padding(top = 60.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Icon(Icons.Outlined.LibraryAdd, null, tint = Palette.faint, modifier = Modifier.size(36.dp))
+                        Text(if (items.isEmpty()) "Your list is empty" else "Nothing matches these filters", fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold, color = Color.White)
+                        if (items.isEmpty()) Text("Tap Watchlist on any title to save it here for later.", fontSize = 15.sp, color = Palette.dim)
+                    }
                 }
             }
         }

@@ -77,6 +77,8 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [downloads, setDownloads] = useState({})
   const [profiles, setProfiles] = useState([])
+  // Parental controls: the admin makes profiles, and adults keep a PIN.
+  const [guarded, setGuarded] = useState(false)
   const [profile, setProfile] = useState(null)
   // null, 'start' (full screen picker) or 'switch' (side panel).
   const [picking, setPicking] = useState(null)
@@ -198,6 +200,8 @@ export default function App() {
     const data = await api.profiles()
     const list = data.profiles || []
     setProfiles(list)
+    setGuarded(!!data.parental_controls)
+    // The profile in use may just have been renamed or given a new language.
     setProfile((current) => {
       if (!current) return current
       const fresh = list.find((p) => p.id === current.id)
@@ -216,8 +220,11 @@ export default function App() {
       .then((list) => {
         if (!alive) return
         const stored = rememberedProfileId()
-        const found = list.find((p) => p.id === stored) ||
-          (list.length === 1 && !list[0].has_pin ? list[0] : null)
+        // Remembered, it needs no PIN again; the only profile is taken
+        // without asking, unless it has one.
+        // One that has to choose a PIN first goes through the picker.
+        const found = [list.find((p) => p.id === stored) ||
+          (list.length === 1 && !list[0].has_pin ? list[0] : null)].find((p) => p && !p.needs_pin)
         if (found) {
           setProfile(found)
           setActiveProfile(found.id)
@@ -787,6 +794,8 @@ export default function App() {
   }, [startPlay, openDetail, downloads, download, notify])
 
   const openCard = useCallback((card) => {
+    // Kept on a kids profile's watchlist above its ceiling: not opened, not played.
+    if (card.locked) return
     const resume = card.resume_play_id || card.resume_download_id
     if (resume) {
       startPlay(card, String(resume))
@@ -899,6 +908,7 @@ export default function App() {
           onPick={pickProfile}
           onChanged={loadProfiles}
           onActiveDeleted={dropProfile}
+          guarded={guarded}
           onClose={profile ? () => setPicking(null) : null}
           registerHandler={registerHandler}
         />

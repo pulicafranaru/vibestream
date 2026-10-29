@@ -44,7 +44,7 @@ struct HomeView: View {
                     } else {
                         CardRow(title: row.title, items: row.items) { card in
                             PosterCard(card: card, width: posterWidth)
-                                .onTapGesture { selection = card }
+                                .onTapGesture { if !card.isLocked { selection = card } }
                         }
                     }
                 }

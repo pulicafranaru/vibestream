@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ProgressRing from '../shared/ProgressRing'
-import { DownloadIcon, MyListIcon, PlayIcon } from '../shared/icons'
+import { DownloadIcon, Icon, MyListIcon, PlayIcon } from '../shared/icons'
 
 // Hover delay before the card grows, so sweeping across a row does not set off every tile.
 const HOVER_DELAY = 450
@@ -83,6 +83,19 @@ export default function Tile({ card, shell }) {
   }, [hovered, close])
 
   useEffect(() => () => clearTimeout(timer.current), [])
+
+  // Above this kids profile's ceiling, kept on its watchlist: seen, never opened.
+  if (card.locked) {
+    return (
+      <article className="tile locked" aria-disabled="true" aria-label={`${card.title}, locked`}
+        title="Locked by parental controls"
+        onClick={() => shell.showError('Locked by parental controls.')}>
+        <Art card={card}>
+          <span className="tile-lock"><Icon name="lock" size={26} /></span>
+        </Art>
+      </article>
+    )
+  }
 
   return (
     <article

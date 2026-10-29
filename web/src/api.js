@@ -122,31 +122,37 @@ export const api = {
   searchSubtitles: (playId, language) =>
     fetch(`/api/play/${playId}/subs/search${qs({ language })}`).then(json),
 
-  browse: (params) => fetch(`/api/catalog${qs(params)}`).then(json),
+  browse: (params) => fetch(`/api/catalog${qs(params)}`, withProfile()).then(json),
   stats: () => fetch('/api/catalog/stats').then(json),
   genres: (mediaType, order) =>
     fetch(`/api/catalog/genres${qs({ media_type: mediaType, order })}`).then(json),
   media: (id) => fetch(`/api/catalog/media/${id}`, withProfile()).then(json),
-  person: (id) => fetch(`/api/catalog/person/${id}`).then(json),
-  similar: (id) => fetch(`/api/catalog/media/${id}/similar`).then(json),
+  // More Like This: the same kind of title with the most in common.
+  person: (id) => fetch(`/api/catalog/person/${id}`, withProfile()).then(json),
+  similar: (id) => fetch(`/api/catalog/media/${id}/similar`, withProfile()).then(json),
+  // One season's episodes:
   season: (mediaId, number) =>
     fetch(`/api/catalog/media/${mediaId}/seasons/${number}`, withProfile()).then(json),
 
   downloads: (activeOnly = false) =>
-    fetch(`/api/downloads${qs({ active_only: activeOnly })}`).then(json),
-  // Downloads with live qBittorrent numbers and artwork.
-  downloadManager: () => fetch('/api/downloads/manager').then(json),
-  /* One job per film, episode or season. Deleting an episode job leaves the rest of its pack. */
-  downloadJobs: () => fetch('/api/downloads/jobs').then(json),
-  inspectJob: (jobId) => fetch(`/api/downloads/jobs/${jobId}/inspect`).then(json),
+    fetch(`/api/downloads${qs({ active_only: activeOnly })}`, withProfile()).then(json),
+  // The manager view: the same downloads with live qBittorrent numbers and the
+  // artwork they belong to, which the plain list deliberately does not carry.
+  downloadManager: () => fetch('/api/downloads/manager', withProfile()).then(json),
+  // Downloads as what was asked for: a job per film, episode or season, each with its own progress,
+  // newest first. The torrent under a job is in its inspector; deleting a job deletes what it
+  // brought (one episode of a pack leaves the others).
+  downloadJobs: () => fetch('/api/downloads/jobs', withProfile()).then(json),
+  inspectJob: (jobId) => fetch(`/api/downloads/jobs/${jobId}/inspect`, withProfile()).then(json),
   deleteJob: (jobId) => fetch(`/api/downloads/jobs/${jobId}`, { method: 'DELETE' }).then(json),
-  notifications: (limit = 20) => fetch(`/api/notifications?limit=${limit}`).then(json),
-  // `episode` fetches one episode of a season pack; `scope: 'all'` the whole pack.
-  // With neither, a release already under way is left alone.
+  notifications: (limit = 20) => fetch(`/api/notifications?limit=${limit}`, withProfile()).then(json),
+  // Start a download. `episode` fetches one episode out of a season pack (and adds it to the pack's
+  // torrent if that is already under way); `scope: 'all'` asks for the whole of a pack being
+  // fetched an episode at a time.
   startDownload: (torrentId, { episode, scope, ignoreSpace } = {}) =>
-    fetch(`/api/downloads/${torrentId}${qs({ episode, scope, ignore_space: ignoreSpace || undefined })}`, {
+    fetch(`/api/downloads/${torrentId}${qs({ episode, scope, ignore_space: ignoreSpace || undefined })}`, withProfile({
       method: 'POST',
-    }).then(json),
+    })).then(json),
 
   /* `force` removes a source still seeding, which the tracker counts as a hit and run. */
   space: () => fetch('/api/downloads/space').then(json),

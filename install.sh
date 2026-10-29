@@ -376,7 +376,12 @@ EOF
 say "Downloading VibeStream and qBittorrent"
 cd "$DIR"
 # One at a time: in one pull, the first to fail cancels the other.
-docker compose pull --quiet qbittorrent || die "could not download qBittorrent"
+QBT_IMAGE="$(docker compose config --images | grep -m1 qbittorrent || true)"
+if ! docker compose pull --quiet qbittorrent; then
+  # Pinned, so the copy already here is the same one: an update need not stop on a registry blip.
+  docker image inspect "$QBT_IMAGE" >/dev/null 2>&1 || die "could not download qBittorrent"
+  warn "could not download qBittorrent; using the copy already on this machine"
+fi
 PULL_LOG="$(mktemp)"
 if ! docker compose pull --quiet vibestream 2>"$PULL_LOG"; then
   # A copy loaded by hand (docker load) is used when there is no download.

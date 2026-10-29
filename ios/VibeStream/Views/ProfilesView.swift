@@ -9,7 +9,11 @@ struct ProfilesView: View {
     @State private var managing = false
     @State private var editing: EditTarget?
     @State private var asking: PinAsk?
-    /// Run once the PIN sheet has gone, so a second sheet never rises while the first is closing.
+    /// Parental controls: an adult choosing its first PIN before it is used.
+    @State private var firstPin: Profile?
+    @State private var firstPinTyped: String?
+    /// What the right PIN leads to, done once its sheet has gone, so a
+    /// second sheet never tries to rise while the first is still going.
     @State private var afterPin: (() -> Void)?
     @State private var height: CGFloat = 0
 
@@ -45,6 +49,9 @@ struct ProfilesView: View {
                                         } else {
                                             editing = EditTarget(profile: profile)
                                         }
+                                    } else if profile.mustChoosePin {
+                                        firstPinTyped = nil
+                                        firstPin = profile
                                     } else if profile.locked && profile.id != state.profile?.id {
                                         asking = PinAsk(profile: profile, toEdit: false)
                                     } else {
@@ -60,7 +67,10 @@ struct ProfilesView: View {
                                 }
                         }
 
-                        if managing || state.profiles.isEmpty {
+                        // Adding is part of managing, a face-sized circle at the end of the row.
+                        // With nobody at all there is nothing to hold down, so it is there straight
+                        // away. Under parental controls they are added in the admin dashboard.
+                        if (managing || state.profiles.isEmpty) && !state.guarded {
                             Button { editing = EditTarget(profile: nil) } label: {
                                 VStack(spacing: 10) {
                                     Circle()
@@ -127,6 +137,38 @@ struct ProfilesView: View {
         .sheet(item: $editing) { target in
             ProfileEditor(profile: target.profile, unlocked: target.pin)
                 .environment(state)
+        }
+        .sheet(item: $firstPin, onDismiss: {
+            afterPin?()
+            afterPin = nil
+        }) { profile in
+            PinEntry(profile: profile,
+                     title: firstPinTyped == nil ? "Choose a PIN" : "Enter it again",
+                     subtitle: firstPinTyped == nil
+                        ? "Parental controls are on, so every adult profile has a PIN. Four digits, asked for when someone chooses this profile."
+                        : nil) { typed in
+                guard let first = firstPinTyped else {
+                    firstPinTyped = typed
+                    return .right
+                }
+                guard typed == first else { return .mismatch }
+                do {
+                    try await APIClient.shared.setPin(profile.id, pin: typed, current: nil)
+                } catch {
+                    return PinAnswer(error)
+                }
+                afterPin = {
+                    Cast.shared.unlocked(profile.id, pin: typed)
+                    Task {
+                        await state.loadProfiles(keepingSelection: true)
+                        let fresh = state.profiles.first(where: { $0.id == profile.id }) ?? profile
+                        await state.pick(fresh)
+                        dismiss()
+                    }
+                }
+                firstPin = nil
+                return .right
+            }
         }
         .sheet(item: $asking, onDismiss: {
             afterPin?()
@@ -495,7 +537,16 @@ struct ProfileEditor: View {
                         }
                     }
 
-                    if !isNew {
+                    // Under parental controls a kids profile has no PIN and
+                    // stays; it is changed in the admin dashboard.
+                    if state.guarded, let profile, profile.kids {
+                        Text("Kids profile: titles rated up to \(profile.maxMaturityLabel ?? "the limit set"). Changed in the admin dashboard.")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.dim)
+                            .multilineTextAlignment(.center)
+                            .padding(14)
+                            .glassCard()
+                    } else if !isNew {
                         HStack(spacing: 10) {
                             Image(systemName: "lock")
                                 .foregroundStyle(Palette.dim)
@@ -506,7 +557,8 @@ struct ProfileEditor: View {
                                 chosen = nil
                                 choosingPin = true
                             }
-                            if hasPin {
+                            // Under parental controls an adult keeps one.
+                            if hasPin && !state.guarded {
                                 Button("Remove", role: .destructive) { removePin() }
                                     .foregroundStyle(Palette.accent)
                             }

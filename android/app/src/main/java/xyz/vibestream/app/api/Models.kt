@@ -41,7 +41,12 @@ data class DownloadState(
     @SerialName("dl_speed") val dlSpeed: Long? = null,
     @SerialName("eta_seconds") val etaSeconds: Int? = null,
     @SerialName("downloaded_bytes") val downloadedBytes: Long? = null,
+    // The raw failure, for the logs. Never shown: see errorMessage.
     val error: String? = null,
+    // The same failure as a sentence for the screen.
+    @SerialName("error_message") val errorMessage: String? = null,
+    // The release this stands in for, when the tracker had deleted the one pressed.
+    val replaces: Int? = null,
     @SerialName("on_disk") val onDisk: Boolean? = null,
     val playable: Boolean? = null,
     val preparing: Boolean? = null,
@@ -132,9 +137,12 @@ data class Card(
     @SerialName("resume_kind") val resumeKind: String? = null,
     val started: Boolean? = null,
     @SerialName("added_at") val addedAt: String? = null,
+    // Above a kids profile's ceiling, kept on its watchlist: dimmed, never opened or played.
+    val locked: Boolean? = null,
     val facts: Facts? = null,
 ) {
     val isSeries get() = mediaType == "tv"
+    val isLocked get() = locked == true
 
     val resumeTitle: String
         get() {
@@ -271,6 +279,7 @@ data class EpisodeAbout(
     val directors: List<String>? = null,
     val writers: List<String>? = null,
     @SerialName("guest_stars") val guestStars: List<Guest>? = null,
+    @SerialName("person_ids") val personIDs: Map<String, Int>? = null,
 ) {
     @Serializable
     data class Guest(val name: String, val character: String? = null)
@@ -375,18 +384,207 @@ data class DownloadManager(
     val items: List<DownloadItem> = emptyList(),
 )
 
+// ----------------------------------------------------------- download jobs
+
+/** Downloads as what was asked for: a film, an episode, a season, each with
+ *  the progress of its own files. The torrents are in each job's inspector. */
+@Serializable
+data class DownloadJobs(
+    val live: Boolean = false,
+    val totals: DownloadTotals = DownloadTotals(),
+    val items: List<DownloadJob> = emptyList(),
+)
+
+@Serializable
+data class DownloadJob(
+    @SerialName("job_id") val id: Int,
+    // title (a film, or a release of one episode), episode, season.
+    val kind: String,
+    @SerialName("download_id") val downloadID: Int,
+    @SerialName("torrent_id") val torrentID: Int,
+    @SerialName("media_id") val mediaID: Int? = null,
+    @SerialName("media_type") val mediaType: String? = null,
+    val title: String,
+    val year: Int? = null,
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val episode: Episode? = null,
+    // "S1:E3", "Season 1".
+    val label: String? = null,
+    val release: String? = null,
+    val resolution: String? = null,
+    val hdr: String? = null,
+    val seeding: SeedingGoal = SeedingGoal(),
+    // Other jobs live on the same torrent, so deleting this one keeps it.
+    @SerialName("shares_torrent") val sharesTorrent: Boolean = false,
+    // queued, downloading, paused, preparing, ready, failed.
+    val state: String,
+    val percent: Double = 0.0,
+    @SerialName("size_bytes") val sizeBytes: Long? = null,
+    @SerialName("downloaded_bytes") val downloadedBytes: Long? = null,
+    @SerialName("dl_speed") val dlSpeed: Long = 0,
+    @SerialName("eta_seconds") val etaSeconds: Int? = null,
+    @SerialName("prepare_percent") val preparePercent: Double? = null,
+    @SerialName("play_id") val playID: String? = null,
+    @SerialName("error_message") val errorMessage: String? = null,
+) {
+    @Serializable
+    data class Episode(val id: Int, val season: Int, val number: Int, val name: String? = null, val still: String? = null)
+
+    val isActive get() = state in setOf("queued", "downloading", "paused")
+}
+
+/** The torrent under a job, as a torrent client's inspector has it. Every
+ *  field optional: qBittorrent's half is missing when it does not answer. */
+@Serializable
+data class JobInspection(
+    val live: Boolean = false,
+    val release: Release? = null,
+    val torrent: Torrent = Torrent(),
+    val pieces: Pieces = Pieces(),
+    val files: List<File> = emptyList(),
+    val peers: List<Peer> = emptyList(),
+    val trackers: List<Tracker> = emptyList(),
+    val library: Library = Library(),
+    // The job itself as it is now.
+    val job: DownloadJob? = null,
+) {
+    @Serializable
+    data class Release(
+        val name: String? = null,
+        @SerialName("category_name") val categoryName: String? = null,
+        @SerialName("size_bytes") val sizeBytes: Long? = null,
+        val resolution: String? = null,
+        val source: String? = null,
+        @SerialName("video_codec") val videoCodec: String? = null,
+        @SerialName("audio_codec") val audioCodec: String? = null,
+        val hdr: String? = null,
+        @SerialName("release_group") val releaseGroup: String? = null,
+        @SerialName("upload_date") val uploadDate: String? = null,
+        val seeders: Int? = null,
+        val leechers: Int? = null,
+        val freeleech: Boolean? = null,
+        val internal: Boolean? = null,
+    )
+
+    @Serializable
+    data class Torrent(
+        val name: String? = null,
+        @SerialName("info_hash") val infoHash: String? = null,
+        val state: String? = null,
+        @SerialName("save_path") val savePath: String? = null,
+        @SerialName("content_path") val contentPath: String? = null,
+        @SerialName("size_bytes") val sizeBytes: Long? = null,
+        @SerialName("total_size_bytes") val totalSizeBytes: Long? = null,
+        val progress: Double? = null,
+        @SerialName("downloaded_bytes") val downloadedBytes: Long? = null,
+        @SerialName("uploaded_bytes") val uploadedBytes: Long? = null,
+        @SerialName("wasted_bytes") val wastedBytes: Long? = null,
+        val ratio: Double? = null,
+        @SerialName("dl_speed") val dlSpeed: Long? = null,
+        @SerialName("up_speed") val upSpeed: Long? = null,
+        @SerialName("dl_speed_avg") val dlSpeedAvg: Long? = null,
+        @SerialName("up_speed_avg") val upSpeedAvg: Long? = null,
+        @SerialName("eta_seconds") val etaSeconds: Long? = null,
+        @SerialName("seeding_seconds") val seedingSeconds: Long? = null,
+        @SerialName("elapsed_seconds") val elapsedSeconds: Long? = null,
+        val connections: Int? = null,
+        @SerialName("connections_limit") val connectionsLimit: Int? = null,
+        val seeds: Int? = null,
+        @SerialName("seeds_total") val seedsTotal: Int? = null,
+        val leechers: Int? = null,
+        @SerialName("leechers_total") val leechersTotal: Int? = null,
+        @SerialName("piece_size") val pieceSize: Long? = null,
+        @SerialName("pieces_have") val piecesHave: Int? = null,
+        @SerialName("pieces_count") val piecesCount: Int? = null,
+        @SerialName("reannounce_seconds") val reannounceSeconds: Long? = null,
+        @SerialName("created_by") val createdBy: String? = null,
+        @SerialName("created_at") val createdAt: String? = null,
+        @SerialName("added_at") val addedAt: String? = null,
+        @SerialName("completed_at") val completedAt: String? = null,
+    )
+
+    // How much of each cell is here, 0 to 100; busy is 1 where some is being fetched.
+    @Serializable
+    data class Pieces(val count: Int = 0, val have: List<Int> = emptyList(), val busy: List<Int> = emptyList())
+
+    @Serializable
+    data class File(
+        val name: String,
+        @SerialName("size_bytes") val sizeBytes: Long = 0,
+        val progress: Double = 0.0,
+        // 0: skipped.
+        val priority: Int = 1,
+        val mine: Boolean = false,
+    )
+
+    @Serializable
+    data class Peer(
+        val address: String? = null,
+        val client: String? = null,
+        val country: String? = null,
+        @SerialName("country_code") val countryCode: String? = null,
+        val connection: String? = null,
+        val flags: String? = null,
+        val progress: Double = 0.0,
+        @SerialName("dl_speed") val dlSpeed: Long = 0,
+        @SerialName("up_speed") val upSpeed: Long = 0,
+        val downloaded: Long = 0,
+        val uploaded: Long = 0,
+    )
+
+    @Serializable
+    data class Tracker(
+        val host: String,
+        val status: String = "",
+        val seeds: Int? = null,
+        val leechers: Int? = null,
+        val peers: Int? = null,
+        val downloaded: Int? = null,
+        val message: String? = null,
+    )
+
+    @Serializable
+    data class Library(
+        @SerialName("requested_at") val requestedAt: String? = null,
+        @SerialName("library_path") val libraryPath: String? = null,
+        @SerialName("play_path") val playPath: String? = null,
+        val wanted: List<String>? = null,
+        val preparation: Prep? = null,
+        @SerialName("source_removed") val sourceRemoved: Boolean = false,
+        @SerialName("source_removable") val sourceRemovable: Boolean = false,
+        @SerialName("source_bytes") val sourceBytes: Long? = null,
+    ) {
+        @Serializable
+        data class Prep(val ready: Boolean? = null, val percent: Double? = null, val stage: String? = null, val error: String? = null)
+    }
+}
+
+// -------------------------------------------------------------- profiles
+
 @Serializable
 data class Profile(
     val id: Int,
     val name: String,
     val avatar: String? = null,
     @SerialName("has_pin") val hasPin: Boolean? = null,
+    @SerialName("is_kids") val isKids: Boolean? = null,
+    // Parental controls: an adult without a PIN chooses one before it is used.
+    @SerialName("needs_pin") val needsPin: Boolean? = null,
+    // A kids profile's ceiling under parental controls, as words ("7+").
+    @SerialName("max_maturity_label") val maxMaturityLabel: String? = null,
 ) {
     val locked get() = hasPin == true
+    val kids get() = isKids == true
+    val mustChoosePin get() = needsPin == true
 }
 
 @Serializable
-data class ProfileList(val profiles: List<Profile> = emptyList(), val avatars: List<String>? = null)
+data class ProfileList(
+    val profiles: List<Profile> = emptyList(),
+    val avatars: List<String>? = null,
+    @SerialName("parental_controls") val parentalControls: Boolean? = null,
+)
 
 @Serializable
 data class NotificationItem(
@@ -414,7 +612,40 @@ data class PlayInfo(
     val audio: List<AudioTrack> = emptyList(),
     val next: NextEpisode? = null,
     val presentation: Presentation? = null,
+    // What the file is, as the server probed it, and the file itself. For the stats overlay.
+    val media: MediaSummary? = null,
+    val file: FileSummary? = null,
 ) {
+    /** The track the server plays when none is asked for: the one flagged
+     *  default, else the first. */
+    val defaultAudio: AudioTrack? get() = audio.firstOrNull { it.default == true } ?: audio.firstOrNull()
+
+    @Serializable
+    data class MediaSummary(
+        val container: String? = null,
+        val bitrate: Long? = null,
+        val video: Video? = null,
+        val audio: List<Audio>? = null,
+    ) {
+        @Serializable
+        data class Video(
+            val codec: String? = null,
+            val profile: String? = null,
+            val width: Int? = null,
+            val height: Int? = null,
+            @SerialName("bit_depth") val bitDepth: Int? = null,
+            @SerialName("frame_rate") val frameRate: Double? = null,
+            val hdr: Boolean? = null,
+            @SerialName("dolby_vision") val dolbyVision: Boolean? = null,
+        )
+
+        @Serializable
+        data class Audio(val index: Int, val codec: String? = null, val channels: Int? = null)
+    }
+
+    @Serializable
+    data class FileSummary(val name: String? = null, @SerialName("size_bytes") val sizeBytes: Long? = null)
+
     @Serializable
     data class Resume(val seconds: Double = 0.0, val runtime: Double = 0.0, val finished: Boolean = false)
 
@@ -431,6 +662,9 @@ data class PlayInfo(
         val mode: String = "",
         @SerialName("video_passthrough") val videoPassthrough: Boolean = false,
         val hls: String,
+        // "live" (segments made while watching) or "renditions".
+        val engine: String? = null,
+        @SerialName("audio_transcoded") val audioTranscoded: Boolean? = null,
     )
 
     @Serializable
@@ -444,7 +678,13 @@ data class PlayInfo(
     )
 
     @Serializable
-    data class AudioTrack(val index: Int, val label: String, val language: String? = null, val channels: Int? = null)
+    data class AudioTrack(
+        val index: Int,
+        val label: String,
+        val language: String? = null,
+        val channels: Int? = null,
+        val default: Boolean? = null,
+    )
 
     @Serializable
     data class NextEpisode(
@@ -492,7 +732,15 @@ data class Clip(
 @Serializable
 data class ClipPage(val items: List<Clip> = emptyList())
 
-data class PlayRequest(val playID: String, val title: String, val startAt: Double? = null)
+/** Where a play starts: a download id ("12") or an episode ("e34"). The
+ *  season and episode, when known, let the title page land on that episode. */
+data class PlayRequest(
+    val playID: String,
+    val title: String,
+    val startAt: Double? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
 
 @Serializable
 data class Trickplay(

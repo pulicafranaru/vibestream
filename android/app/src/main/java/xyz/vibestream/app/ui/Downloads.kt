@@ -17,19 +17,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,11 +56,10 @@ import kotlinx.coroutines.launch
 import xyz.vibestream.app.AppState
 import xyz.vibestream.app.Debug
 import xyz.vibestream.app.api.Api
-import xyz.vibestream.app.api.DownloadItem
-import xyz.vibestream.app.api.DownloadManager
+import xyz.vibestream.app.api.DownloadJob
+import xyz.vibestream.app.api.DownloadJobs
 import xyz.vibestream.app.api.DownloadTotals
 import xyz.vibestream.app.api.NotificationItem
-import xyz.vibestream.app.api.PackEpisode
 import xyz.vibestream.app.api.PlayRequest
 import java.time.Duration
 import java.time.Instant
@@ -73,14 +76,23 @@ fun fileSize(bytes: Long): String {
     return if (unit <= 1) "${value.toInt()} ${units[unit]}" else "%.2f %s".format(value, units[unit]).replace(".00 ", " ")
 }
 
+/** The green the TV and the web say Ready in. */
+internal val readyGreen = Color(0xFF45D469)
+private val deleteRed = Color(0xFFFF5A6E)
+
+// The downloads manager, the iOS app's. Each row is something that was asked for (a film, an
+// episode, a season) with the progress of its own files, newest first; the torrent under it is in
+// the row's inspector.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadsView(nav: Navigator) {
-    var data by remember { mutableStateOf<DownloadManager?>(null) }
+    var data by remember { mutableStateOf<DownloadJobs?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    var confirming by remember { mutableStateOf<DownloadItem?>(null) }
-    var confirmingEpisode by remember { mutableStateOf<Pair<DownloadItem, PackEpisode>?>(null) }
+    var confirming by remember { mutableStateOf<DownloadJob?>(null) }
+    var inspecting by remember { mutableStateOf<DownloadJob?>(null) }
     var working by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var note by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun show(message: String) {
@@ -88,11 +100,32 @@ fun DownloadsView(nav: Navigator) {
         scope.launch { delay(3_000); if (note == message) note = null }
     }
     suspend fun load() {
-        runCatching { Api.downloadManager() }.onSuccess { data = it; loadError = null }.onFailure { loadError = it.message }
+        runCatching { Api.downloadJobs() }.onSuccess { data = it; loadError = null }.onFailure { loadError = it.said() }
     }
-    LaunchedEffect(Unit) { while (true) { load(); delay(3_000) } }
+    // Polled while open: speeds and peers are live by nature.
+    LaunchedEffect(Unit) {
+        // inspectJob <id>: that job's inspector, to look at it.
+        Debug.int("inspectJob")?.let { wanted -> load(); inspecting = data?.items?.firstOrNull { it.id == wanted } }
+        while (true) { load(); delay(3_000) }
+    }
 
-    Box {
+    /* An episode or a film plays itself. A season plays the episode the
+     * show's page would: carrying on from the last one watched, or its first. */
+    fun play(job: DownloadJob) {
+        job.playID?.let {
+            nav.play(PlayRequest(it, job.title, season = job.episode?.season, episode = job.episode?.number))
+            return
+        }
+        val media = job.mediaID?.takeIf { job.kind == "season" } ?: return
+        scope.launch {
+            val next = runCatching { Api.media(media) }.getOrNull()?.nextUp
+            if (next != null) nav.play(PlayRequest(next.playID, job.title, season = next.season, episode = next.number))
+            else show("Open ${job.title} to choose an episode")
+        }
+    }
+
+    // Pulled down, it reads again now rather than at the next poll.
+    PullToRefreshBox(refreshing, onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } }) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 30.dp)) {
             item {
                 Text("My Downloads", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
@@ -105,25 +138,21 @@ fun DownloadsView(nav: Navigator) {
                     Text("qBittorrent is not answering, so speeds and peers are the last known values.", fontSize = 13.sp, color = Color(0xFFFF9500))
                 }
             }
-            items(data?.items.orEmpty(), key = { it.downloadID }) { item ->
-                DownloadRow(item, item.downloadID in working,
-                    onPlay = {
-                        if (item.mediaType != "tv" || item.mediaID == null) nav.play(PlayRequest(item.downloadID.toString(), item.title))
-                        else scope.launch {
-                            val next = runCatching { Api.media(item.mediaID) }.getOrNull()?.nextUp
-                            if (next != null) nav.play(PlayRequest(next.playID, item.title)) else show("Open ${item.title} to choose an episode")
-                        }
-                    },
+            items(data?.items.orEmpty(), key = { it.id }) { job ->
+                JobRow(job, job.id in working,
+                    onPlay = { play(job) },
+                    // Asking again is what clears a failure, of the download
+                    // or of its preparation.
                     onRetry = {
-                        working = working + item.downloadID
+                        working = working + job.id
                         scope.launch {
-                            runCatching { AppState.download(item.torrentID); load(); show("Preparing ${item.title} again") }
-                                .onFailure { show("Could not retry: ${it.message}") }
-                            working = working - item.downloadID
+                            runCatching { AppState.download(job.torrentID, job.episode?.id); load(); show("Trying ${deleteName(job)} again") }
+                                .onFailure { Toasts.error(it.said()) }
+                            working = working - job.id
                         }
                     },
-                    onDelete = { confirming = item },
-                    onDeleteEpisode = { confirmingEpisode = item to it })
+                    onDelete = { confirming = job },
+                    onInspect = { inspecting = job })
             }
             if (data?.items?.isEmpty() == true) item {
                 Column(Modifier.fillMaxWidth().padding(top = 60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -140,51 +169,63 @@ fun DownloadsView(nav: Navigator) {
         }
     }
 
-    confirming?.let { item ->
-        AlertDialog(
-            onDismissRequest = { confirming = null },
-            title = { Text("Delete ${item.title}?") },
-            text = {
-                Text(if (item.seeding.met) "This removes the torrent and its files from the server."
-                else "This removes the torrent and its files from the server. It has only ${item.seeding.detail}, so deleting now counts as a hit and run on filelist.")
-            },
-            confirmButton = {
-                TextButton({
-                    confirming = null
-                    working = working + item.downloadID
-                    scope.launch {
-                        runCatching { Api.deleteDownload(item.downloadID); load(); AppState.loadFeed(); show("Removed ${item.title}") }
-                            .onFailure { show("Could not remove it: ${it.message}") }
-                        working = working - item.downloadID
-                    }
-                }) { Text("Delete and free ${fileSize(item.sizeBytes)}", color = Color(0xFFFF5A6E)) }
-            },
-            dismissButton = { TextButton({ confirming = null }) { Text("Cancel", color = Color.White) } },
-            containerColor = Color(0xFF242424),
-        )
+    inspecting?.let { job ->
+        JobInspector(job, onPlay = { inspecting = null; play(it) }, onChange = { load() }, onClose = { inspecting = null })
     }
-    confirmingEpisode?.let { (item, episode) ->
-        AlertDialog(
-            onDismissRequest = { confirmingEpisode = null },
-            title = { Text("Delete ${episode.label} of ${item.title}?") },
-            text = { Text("This removes the episode from the server and from your library. The rest of the season stays.") },
-            confirmButton = {
-                TextButton({
-                    confirmingEpisode = null
-                    working = working + item.downloadID
-                    scope.launch {
-                        runCatching { Api.deleteEpisode(episode.episodeID, item.downloadID); load(); AppState.loadFeed(); show("Removed ${episode.label} of ${item.title}") }
-                            .onFailure { show("Could not remove it: ${it.message}") }
-                        working = working - item.downloadID
-                    }
-                }) { Text("Delete Episode", color = Color(0xFFFF5A6E)) }
-            },
-            dismissButton = { TextButton({ confirmingEpisode = null }) { Text("Cancel", color = Color.White) } },
-            containerColor = Color(0xFF242424),
-        )
+    confirming?.let { job ->
+        DeleteJobDialog(job, onDismiss = { confirming = null }) {
+            confirming = null
+            working = working + job.id
+            scope.launch {
+                runCatching {
+                    Api.deleteJob(job.id)
+                    load()
+                    // The catalog rows carry download state, so they are
+                    // stale the moment one disappears.
+                    AppState.loadFeed()
+                    show("Removed ${deleteName(job)}")
+                }.onFailure { Toasts.error("Couldn't remove it. Try again.") }
+                working = working - job.id
+            }
+        }
     }
 }
 
+/** "Show S1:E3": the title with what of it this is. */
+internal fun deleteName(job: DownloadJob) = listOfNotNull(job.title, job.label).joinToString(" ")
+
+/*
+ * What deleting costs. One episode of a pack others still use leaves the
+ * torrent; the last of it takes the torrent, and before its seeding is done
+ * that is a hit and run.
+ */
+internal fun deleteMessage(job: DownloadJob) = when {
+    job.kind == "episode" && job.sharesTorrent ->
+        "This removes the episode from the server and from your library. The rest of the season stays."
+    !job.seeding.met ->
+        "This removes it and its files from the server. It has only ${job.seeding.detail}, so deleting now counts as a hit and run on filelist."
+    else -> "This removes it and its files from the server."
+}
+
+/** The confirmation every delete of a job goes through, here and in its inspector. */
+@Composable
+internal fun DeleteJobDialog(job: DownloadJob, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete ${deleteName(job)}?") },
+        text = { Text(deleteMessage(job)) },
+        confirmButton = {
+            TextButton(onConfirm) { Text(job.sizeBytes?.let { "Delete and free ${fileSize(it)}" } ?: "Delete", color = deleteRed) }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel", color = Color.White) } },
+        containerColor = Color(0xFF242424),
+    )
+}
+
+/*
+ * What the disk holds, as a ring: the renditions playback uses, the raw
+ * torrent files, and what is free, with the used part named in the middle.
+ */
 @Composable
 private fun Summary(totals: DownloadTotals) {
     val slices = buildList {
@@ -213,8 +254,11 @@ private fun Summary(totals: DownloadTotals) {
                         start += sweep
                     }
                 }
-                Column(Modifier.width(80.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(fileSize(used), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                // The hole is 87dp across: 68 keeps the words off the ring.
+                Column(Modifier.width(68.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    // Smaller rather than cut: "971.85 GB" does not fit the ring's
+                    // middle at full size, and wrapped it lost its unit.
+                    ShrinkText(fileSize(used), 17.sp, minimumScale = 0.6f, fontWeight = FontWeight.Bold, color = Color.White)
                     if (totals.freeBytes != null) Text("of ${fileSize(whole)}", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Palette.faint)
                 }
             }
@@ -231,7 +275,7 @@ private fun Summary(totals: DownloadTotals) {
             }
         }
         val parts = buildList {
-            add(if (totals.count == 1) "1 title" else "${totals.count} titles")
+            add(if (totals.count == 1) "1 download" else "${totals.count} downloads")
             add("${fileSize(totals.uploadedBytes)} shared")
             if (totals.downloading > 0) { add("↓ ${fileSize(totals.dlSpeed)}/s"); add("↑ ${fileSize(totals.upSpeed)}/s") }
         }
@@ -239,82 +283,90 @@ private fun Summary(totals: DownloadTotals) {
     }
 }
 
+/*
+ * One job: what it is (the episode's still, or the poster), where it stands
+ * in one line with a bar while it moves, and a menu. A tap opens its
+ * inspector.
+ */
 @Composable
-private fun DownloadRow(
-    item: DownloadItem,
+private fun JobRow(
+    job: DownloadJob,
     working: Boolean,
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
-    onDeleteEpisode: (PackEpisode) -> Unit,
+    onInspect: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    var episodesMenu by remember { mutableStateOf(false) }
-    val tint = when {
-        item.playable -> Color(0xFF45D469)
-        item.state == "error" || item.preparation.error != null -> Palette.accent
-        else -> Color.White
-    }
-    Row(Modifier.fillMaxWidth().alpha(if (working) 0.5f else 1f).background(Palette.fill, RoundedCornerShape(16.dp)).padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        RemoteImage(item.poster, Modifier.width(62.dp).height(93.dp).clip(RoundedCornerShape(6.dp)))
+    Row(Modifier.fillMaxWidth().alpha(if (working) 0.5f else 1f).background(Palette.fill, RoundedCornerShape(16.dp))
+        .pressable(onClick = onInspect).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // The episode's still for an episode, wide; the poster for the rest.
+        val still = job.episode?.still
+        if (still != null) RemoteImage(still, Modifier.width(112.dp).height(63.dp).clip(RoundedCornerShape(6.dp)))
+        else RemoteImage(job.poster, Modifier.width(62.dp).height(93.dp).clip(RoundedCornerShape(6.dp)))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, modifier = Modifier.weight(1f, false))
-                item.year?.let { Text("$it", fontSize = 13.sp, color = Palette.faint) }
+            Text(job.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2)
+            jobSubtitle(job)?.let { Text(it, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Palette.dim, maxLines = 2) }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (job.state == "failed") ErrorBadge(14.dp)
+                val ready = job.state == "ready"
+                Text(jobStatus(job), fontSize = 12.sp, fontWeight = if (ready) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (ready) readyGreen else Palette.dim, maxLines = 2)
             }
-            Text(item.stateLabel.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = tint,
-                modifier = Modifier.background(tint.copy(alpha = 0.2f), CircleShape).padding(horizontal = 7.dp, vertical = 3.dp))
-            item.episodes?.takeIf { it.isNotEmpty() }?.let {
-                Text("Episodes ${it.joinToString(", ")} of the season", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            }
-            if (item.isWorking) ProgressLine(item.percent, Modifier.fillMaxWidth().clip(CircleShape), track = 0.2f)
-            else if (item.isPreparing) ProgressLine(item.preparation.percent, Modifier.fillMaxWidth().clip(CircleShape), track = 0.2f, fill = Color.White)
-            val cost = buildList {
-                add(fileSize(item.sizeBytes))
-                if (item.isWorking) {
-                    add("${item.percent.toInt()}%")
-                    if (item.dlSpeed > 0) add("${fileSize(item.dlSpeed)}/s")
-                    item.etaSeconds?.takeIf { it > 0 }?.let { add("${it / 60}m left") }
-                }
-                item.seeders?.let { add("$it seeds") }
-            }
-            Text(cost.joinToString("  ·  "), fontSize = 12.sp, color = Palette.dim)
-            val share = buildList {
-                item.leechers?.let { add("$it leeching") }
-                if (item.upSpeed > 0) add("↑ ${fileSize(item.upSpeed)}/s")
-                add("shared ${fileSize(item.uploadedBytes)}")
-                add("ratio %.2f".format(item.ratio))
-                add("seeded %.1fh".format(item.seedingHours))
-            }
-            Text(share.joinToString("  ·  "), fontSize = 12.sp, color = Palette.dim)
-            (item.error ?: item.preparation.error)?.let { Text(it, fontSize = 11.sp, color = Palette.accent, maxLines = 2) }
+            if (job.state == "downloading" || job.state == "paused")
+                ProgressLine(job.percent, Modifier.padding(top = 2.dp).fillMaxWidth().clip(CircleShape), track = 0.2f)
+            else if (job.state == "preparing")
+                ProgressLine(job.preparePercent ?: 0.0, Modifier.padding(top = 2.dp).fillMaxWidth().clip(CircleShape), track = 0.2f, fill = Color.White)
         }
         Box {
             Box(Modifier.size(34.dp).pressable(!working) { menu = true }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.MoreHoriz, null, tint = Color.White)
             }
             DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = Color(0xFF242424)) {
-                if (item.playable) DropdownMenuItem(text = { Text("Play") }, leadingIcon = { Icon(Icons.Filled.PlayArrow, null) },
+                if (job.state == "ready") DropdownMenuItem(text = { Text("Play") }, leadingIcon = { Icon(Icons.Filled.PlayArrow, null) },
                     onClick = { menu = false; onPlay() })
-                if (!item.playable && item.preparation.error != null) DropdownMenuItem(text = { Text("Try again") },
+                if (job.state == "failed") DropdownMenuItem(text = { Text("Try again") },
                     leadingIcon = { Icon(Icons.Filled.Refresh, null) }, onClick = { menu = false; onRetry() })
-                if (item.isPack) DropdownMenuItem(text = { Text("Delete Episode", color = Color(0xFFFF5A6E)) },
-                    leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = Color(0xFFFF5A6E)) }, onClick = { menu = false; episodesMenu = true })
-                DropdownMenuItem(text = { Text(if (item.isPack) "Delete Season" else "Delete", color = Color(0xFFFF5A6E)) },
-                    leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = Color(0xFFFF5A6E)) }, onClick = { menu = false; onDelete() })
-            }
-            DropdownMenu(episodesMenu, onDismissRequest = { episodesMenu = false }, containerColor = Color(0xFF242424)) {
-                item.episodeList.orEmpty().forEach { e ->
-                    DropdownMenuItem(text = {
-                        Column { Text(e.label, color = Color(0xFFFF5A6E)); e.name?.let { Text(it, fontSize = 12.sp, color = Palette.dim) } }
-                    }, onClick = { episodesMenu = false; onDeleteEpisode(e) })
-                }
+                DropdownMenuItem(text = { Text("Details") }, leadingIcon = { Icon(Icons.Outlined.Info, null) },
+                    onClick = { menu = false; onInspect() })
+                DropdownMenuItem(text = { Text("Delete", color = deleteRed) },
+                    leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = deleteRed) }, onClick = { menu = false; onDelete() })
             }
         }
     }
 }
 
+/** The label and the episode's name, or the label, or the year. */
+private fun jobSubtitle(job: DownloadJob): String? {
+    if (job.episode != null) return listOfNotNull(job.label, job.episode.name).joinToString(" · ").ifEmpty { null }
+    return job.label ?: job.year?.toString()
+}
+
+/*
+ * Where a job stands, in one line. Under one percent is what a stall looks
+ * like, so it says only that it is under way until there is a figure worth
+ * printing; an ETA past a hundred hours is qBittorrent's way of saying never.
+ */
+private fun jobStatus(job: DownloadJob): String = when (job.state) {
+    "queued" -> "Queued"
+    "paused" -> "Paused at ${job.percent.toInt()}%"
+    "downloading" -> buildList {
+        add(if (job.percent >= 1) "Downloading ${job.percent.toInt()}%" else "Downloading")
+        if (job.dlSpeed > 0) add("${fileSize(job.dlSpeed)}/s")
+        job.etaSeconds?.takeIf { it in 1 until 360_000 }?.let { add("${maxOf(1, it / 60)}m left") }
+    }.joinToString(" · ")
+    "preparing" -> job.preparePercent?.let { "Preparing ${it.toInt()}%" } ?: "Preparing"
+    "failed" -> job.errorMessage ?: "Something went wrong. Try again."
+    else -> listOfNotNull("Ready", job.sizeBytes?.let(::fileSize)).joinToString(" · ")
+}
+
+// ------------------------------------------------------------ notifications
+
+/*
+ * The bell, the same one the web and iOS apps have. What it lists is worked
+ * out by the server; what it counts is this device's: anything newer than the
+ * last time this profile opened the list here. In-app only.
+ */
 object Notifications {
     var items by mutableStateOf<List<NotificationItem>>(emptyList())
 
@@ -344,14 +396,22 @@ fun NotificationsBell(onOpen: () -> Unit) {
 }
 
 @Composable
-fun NotificationsList(onOpen: (xyz.vibestream.app.api.Card) -> Unit, onDownloads: () -> Unit) {
+fun NotificationsList(onOpen: (xyz.vibestream.app.api.Card) -> Unit, onDownloads: () -> Unit, onClose: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { Notifications.load(); Notifications.markRead() }
     LaunchedEffect(Notifications.items) { Notifications.markRead() }
     LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
         item {
-            Text("Notifications", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+                Text("Notifications", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                // A way out besides dragging the sheet, as iOS has.
+                onClose?.let { close ->
+                    Box(Modifier.align(Alignment.CenterEnd).padding(end = 6.dp).size(40.dp).pressable(onClick = close),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Close, "Close", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
         }
         if (Notifications.items.isEmpty()) item {
             Text("Nothing new yet", fontSize = 15.sp, color = Palette.dim, modifier = Modifier.fillMaxWidth().padding(top = 60.dp),

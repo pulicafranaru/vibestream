@@ -13,7 +13,11 @@ struct PosterCard: View {
             .overlay(alignment: .bottom) { resume }
             .overlay(alignment: .topTrailing) { badge }
             .overlay(alignment: .topLeading) { ready }
+            .opacity(card.isLocked ? 0.35 : 1)
+            .grayscale(card.isLocked ? 0.6 : 0)
+            .overlay { if card.isLocked { LockBadge() } }
             .contentShape(.rect)
+            .accessibilityLabel(card.isLocked ? "\(card.title), locked by parental controls" : card.title)
     }
 
     @ViewBuilder private var ready: some View {
@@ -301,6 +305,20 @@ struct HeroCard: View {
     private var artworkURL: URL? {
         let raw = wide ? (card.backdrop ?? card.poster) : (card.poster ?? card.backdrop)
         return raw.flatMap(URL.init(string:))
+    }
+}
+
+/// One horizontal strip: heading, then a lazy row of tiles.
+/// On a title kept on a kids profile's watchlist above its ceiling.
+struct LockBadge: View {
+    var size: CGFloat = 20
+
+    var body: some View {
+        Image(systemName: "lock.fill")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(size * 0.6)
+            .background(.black.opacity(0.6), in: .circle)
     }
 }
 

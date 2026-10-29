@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Info
@@ -40,9 +42,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -56,9 +61,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil3.compose.SubcomposeAsyncImage
+import coil3.toBitmap
 import xyz.vibestream.app.AppState
 import xyz.vibestream.app.R
 import xyz.vibestream.app.api.Api
@@ -71,18 +79,48 @@ fun RemoteImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     alignment: Alignment = Alignment.Center,
+    onImage: ((android.graphics.Bitmap) -> Unit)? = null,
+    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
 ) {
     SubcomposeAsyncImage(
         model = Api.absolute(url),
         contentDescription = null,
         contentScale = contentScale,
         alignment = alignment,
+        colorFilter = colorFilter,
         modifier = modifier.background(Palette.tile),
         loading = { Box(Modifier.fillMaxSize().background(Palette.tile)) },
         error = { Box(Modifier.fillMaxSize().background(Palette.tile)) },
+        onSuccess = { state -> onImage?.let { runCatching { it(state.result.image.toBitmap()) } } },
     )
 }
 
+/*
+ * Black or white, whichever will be seen against the top right corner of
+ * the artwork: what the title page's close glyph is drawn in. Biased towards
+ * white, since the artwork is usually dark, as on iOS (ArtworkTint).
+ */
+fun cornerTint(image: android.graphics.Bitmap): Color {
+    val soft = if (image.config == android.graphics.Bitmap.Config.HARDWARE) image.copy(android.graphics.Bitmap.Config.ARGB_8888, false) else image
+    val w = soft.width
+    val h = soft.height
+    val x0 = (w * 0.7).toInt()
+    val y1 = maxOf(1, (h * 0.25).toInt())
+    var sum = 0.0
+    var count = 0
+    val stepX = maxOf(1, (w - x0) / 24)
+    val stepY = maxOf(1, y1 / 16)
+    for (y in 0 until y1 step stepY) for (x in x0 until w step stepX) {
+        val c = soft.getPixel(x, y)
+        // Rec. 709 weights: green carries most of what the eye reads as bright.
+        sum += (0.2126 * ((c shr 16) and 0xFF) + 0.7152 * ((c shr 8) and 0xFF) + 0.0722 * (c and 0xFF)) / 255
+        count++
+    }
+    return if (count > 0 && sum / count > 0.62) Color.Black else Color.White
+}
+
+/** A press that dims and shrinks a touch, as SwiftUI's plain buttons do,
+ *  without Material's ripple. */
 @Composable
 fun Modifier.pressable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
     val source = remember { MutableInteractionSource() }
@@ -175,32 +213,55 @@ fun PosterCard(card: Card, width: Dp? = Metrics.posterWidth, onClick: () -> Unit
     val shape = RoundedCornerShape(6.dp)
     val base = if (width != null) Modifier.width(width).aspectRatio(Metrics.posterAspect)
     else Modifier.fillMaxWidth().aspectRatio(Metrics.posterAspect)
-    Box(base.clip(shape).pressable(onClick = onClick)) {
-        RemoteImage(card.poster, Modifier.fillMaxSize())
-        val download = liveDownload(card)
-        if (download != null && (download.isWorking || download.isPreparing)) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
-                DownloadRing(if (download.isWorking && download.percent > 0) download.percent else null, 42.dp)
+    val locked = card.locked == true
+    // Locked by parental controls: dimmed and greyed, with what it carries
+    // still on it, under a padlock, as on iOS.
+    Box(base.pressable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().clip(shape).alpha(if (locked) 0.35f else 1f)) {
+            RemoteImage(card.poster, Modifier.fillMaxSize(),
+                colorFilter = if (locked) androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+                    androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0.4f) }) else null)
+            val download = liveDownload(card)
+            if (download != null && (download.isWorking || download.isPreparing)) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                    DownloadRing(if (download.isWorking && download.percent > 0) download.percent else null, 42.dp)
+                }
+            }
+            val percent = card.resumePercent ?: 0.0
+            if (percent > 1) ProgressLine(percent, Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+            if (card.quality?.resolution == "2160p") {
+                // A line as tall as the letters: the theme's line height made the
+                // box taller than wide.
+                Text("4K", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color.White, style = TightText,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(3.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp))
+            }
+            // An amber dot: this one is on the server and plays now.
+            if (card.playableDownloadID != null) {
+                Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(8.dp)
+                    .border(2.dp, Palette.ground.copy(alpha = 0.75f), CircleShape)
+                    .background(Palette.good, CircleShape))
             }
         }
-        val percent = card.resumePercent ?: 0.0
-        if (percent > 1) ProgressLine(percent, Modifier.align(Alignment.BottomCenter).fillMaxWidth())
-        if (card.quality?.resolution == "2160p") {
-            Text("4K", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color.White,
-                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)
-                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(3.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp))
-        }
-        if (card.playableDownloadID != null) {
-            Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(8.dp)
-                .border(2.dp, Palette.ground.copy(alpha = 0.75f), CircleShape)
-                .background(Palette.good, CircleShape))
-        }
+        if (locked) LockBadge()
     }
 }
 
+/** A padlock on a dark disc: locked by parental controls. */
 @Composable
-fun ContinueCard(card: Card, width: Dp, onPlay: () -> Unit, onInfo: () -> Unit) {
+fun LockBadge(size: Dp = 20.dp) {
+    Icon(Icons.Filled.Lock, "Locked by parental controls", tint = Color.White,
+        modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(size * 0.6f).size(size))
+}
+
+/*
+ * Continue Watching: a wider tile, a play affordance and the progress
+ * directly under the artwork. A tap opens the title page already playing,
+ * so the corner button that led to the page went, as on iOS.
+ */
+@Composable
+fun ContinueCard(card: Card, width: Dp, onPlay: () -> Unit) {
     Column(Modifier.width(width).clip(RoundedCornerShape(6.dp))) {
         Box(Modifier.width(width).aspectRatio(Metrics.posterAspect).pressable(onClick = onPlay)) {
             RemoteImage(card.poster, Modifier.fillMaxSize())
@@ -211,12 +272,6 @@ fun ContinueCard(card: Card, width: Dp, onPlay: () -> Unit, onInfo: () -> Unit) 
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(24.dp).padding(start = 1.dp))
-            }
-            Box(Modifier.align(Alignment.TopEnd).size(44.dp).pressable(onClick = onInfo), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(28.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
-                    Text("i", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
             }
             card.resumeLabel?.let { label ->
                 Text(if (card.resumeKind == "next") "Next: $label" else label,
@@ -291,9 +346,10 @@ sealed class TitleAction {
         fun of(live: DownloadState?, resume: String? = null, optimistic: Boolean = false): TitleAction {
             if (live == null || live.state == "removed") return if (optimistic) Queuing else Download
             if (live.isPlayable) return Play(resume ?: "Play")
-            live.prepareError?.let { return Failed(it) }
+            // The sentence the server wrote for the screen, never the raw error.
+            if (live.prepareError != null) return Failed("It arrived but could not be made playable. Try again.")
             if (live.isPreparing) return Preparing(live.preparePercent)
-            if (live.error != null && live.state == "error") return Failed(live.error)
+            if (live.state == "error") return Failed(live.errorMessage ?: "The download could not start. Try again.")
             if (live.state == "downloading") return Downloading(live.percent.takeIf { it >= 1 })
             if (live.isWorking) return Waiting
             return if (optimistic) Queuing else Download
@@ -313,17 +369,22 @@ fun TitleButton(action: TitleAction, modifier: Modifier = Modifier, onPress: () 
         is TitleAction.Failed -> "Try again"
     }
     val prominent = action is TitleAction.Download || action is TitleAction.Play || action is TitleAction.Failed
-    Pill(prominent, modifier, onClick = onPress) {
-        PillLabel(label) {
-            when (action) {
-                TitleAction.Download -> Icon(painterResource(R.drawable.ic_download), null, Modifier.size(20.dp))
-                is TitleAction.Play -> Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
-                is TitleAction.Failed -> Icon(Icons.Filled.Refresh, null, Modifier.size(22.dp))
-                is TitleAction.Downloading -> DownloadRing(action.percent, 22.dp, showsLabel = false)
-                is TitleAction.Preparing -> DownloadRing(action.percent, 22.dp, showsLabel = false)
-                else -> DownloadRing(null, 22.dp, showsLabel = false)
+    Box(modifier) {
+        Pill(prominent, Modifier.fillMaxWidth(), onClick = onPress) {
+            PillLabel(label) {
+                when (action) {
+                    TitleAction.Download -> Icon(painterResource(R.drawable.ic_download), null, Modifier.size(20.dp))
+                    is TitleAction.Play -> Icon(Icons.Filled.PlayArrow, null, Modifier.size(24.dp))
+                    is TitleAction.Failed -> Icon(Icons.Filled.Refresh, null, Modifier.size(22.dp))
+                    is TitleAction.Downloading -> DownloadRing(action.percent, 22.dp, showsLabel = false)
+                    is TitleAction.Preparing -> DownloadRing(action.percent, 22.dp, showsLabel = false)
+                    else -> DownloadRing(null, 22.dp, showsLabel = false)
+                }
             }
         }
+        // The last attempt failed: said on the button itself, so it still
+        // shows after the toast has gone.
+        if (action is TitleAction.Failed) ErrorBadge(22.dp, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp))
     }
 }
 
@@ -432,4 +493,87 @@ fun systemBarPadding(): androidx.compose.foundation.layout.PaddingValues {
     return with(density) {
         androidx.compose.foundation.layout.PaddingValues(bottom = ((insets?.bottom ?: 0) + (insets?.top ?: 0)).toDp())
     }
+}
+
+/** The first of these that fits the width at its natural size, else the
+ *  last: SwiftUI's ViewThatFits, for a line that must never wrap. */
+@Composable
+fun FirstThatFits(vararg options: @Composable () -> Unit) {
+    androidx.compose.ui.layout.SubcomposeLayout { constraints ->
+        val loose = constraints.copy(minWidth = 0, maxWidth = androidx.compose.ui.unit.Constraints.Infinity)
+        var chosen: androidx.compose.ui.layout.Placeable? = null
+        for ((index, option) in options.withIndex()) {
+            val placeable = subcompose(index, option).first().measure(loose)
+            chosen = placeable
+            if (placeable.width <= constraints.maxWidth) break
+        }
+        val p = chosen!!
+        layout(p.width.coerceAtMost(constraints.maxWidth), p.height) { p.place(0, 0) }
+    }
+}
+
+/** For a small badge: a line no taller than its letters, no font padding. */
+val TightText = androidx.compose.ui.text.TextStyle(
+    lineHeight = 1.em,
+    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+        androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+        androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+    ),
+)
+
+/** One line that shrinks to fit, down to `minimumScale` of its size, as
+ *  SwiftUI's minimumScaleFactor: never wrapped, never cut mid number. */
+@Composable
+fun ShrinkText(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    minimumScale: Float = 0.7f,
+    fontWeight: FontWeight? = null,
+    color: Color = Color.Unspecified,
+    modifier: Modifier = Modifier,
+) {
+    var scale by remember(text) { mutableStateOf(1f) }
+    Text(
+        text, modifier, color = color, fontSize = fontSize * scale, fontWeight = fontWeight,
+        maxLines = 1, softWrap = false,
+        onTextLayout = { layout ->
+            if (layout.didOverflowWidth && scale > minimumScale) scale = maxOf(minimumScale, scale - 0.05f)
+        },
+    )
+}
+
+/*
+ * Pulled down, a screen reads its rows again now rather than at the next
+ * load, as iOS's refreshable. The indicator comes down under the floating
+ * top bar, not behind it.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun Refreshable(onRefresh: suspend () -> Unit, modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    val top = LocalTopClearance.current
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        refreshing,
+        onRefresh = { scope.launch { refreshing = true; runCatching { onRefresh() }; refreshing = false } },
+        modifier = modifier,
+        state = state,
+        indicator = {
+            androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator(state, refreshing,
+                Modifier.align(Alignment.TopCenter).padding(top = top), containerColor = Palette.chip, color = Palette.accent)
+        },
+        content = content,
+    )
+}
+
+/** The activity under a context, which in a sheet's window is wrapped. */
+fun android.content.Context.findActivity(): androidx.activity.ComponentActivity? {
+    var c: android.content.Context? = this
+    while (c is android.content.ContextWrapper) {
+        if (c is androidx.activity.ComponentActivity) return c
+        c = c.baseContext
+    }
+    return null
 }

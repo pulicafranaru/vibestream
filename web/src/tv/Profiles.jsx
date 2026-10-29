@@ -54,6 +54,7 @@ function keyAtColumn(row, column) {
 
 export default function Profiles({
   profiles, active, onPick, onChanged, onActiveDeleted, registerHandler, onClose, variant = 'start', backdrop = null,
+  guarded = false,
 }) {
   const [mode, setMode] = useState(variant === 'switch' ? 'switch' : 'pick')
   const [index, setIndex] = useState(() => {
@@ -81,17 +82,29 @@ export default function Profiles({
 
   const tiles = mode === 'manage'
     ? profiles
-    : [...profiles, { id: '__add', name: t('Add Profile') }, ...(mode === 'pick' ? [{ id: '__manage', name: t('Manage') }] : [])]
+    : [
+      ...profiles,
+      // Under parental controls, profiles are added in the admin dashboard.
+      ...(guarded ? [] : [{ id: '__add', name: t('Add Profile') }]),
+      ...(mode === 'pick' ? [{ id: '__manage', name: t('Manage') }] : []),
+    ]
 
-  const menu = editing ? ['name', 'icon', 'language', 'pin', 'delete', 'done'] : ['name', 'icon', 'language', 'done']
+  // A kids profile under parental controls has no PIN, and stays.
+  const kidsLocked = guarded && editing && editing.is_kids
+  const menu = !editing ? ['name', 'icon', 'language', 'done']
+    : kidsLocked ? ['name', 'icon', 'language', 'done']
+      : ['name', 'icon', 'language', 'pin', 'delete', 'done']
 
   const askPin = useCallback((step, profile, extra = {}) => {
     setPin({ step, profile, back: mode, ...extra })
     setMode('pin')
   }, [mode])
 
+  /** Choose a profile: through its PIN when it has one and is not in use,
+   * or, under parental controls, an adult's first PIN. */
   const choose = useCallback((profile) => {
-    if (profile.has_pin && !(active && active.id === profile.id)) askPin('open', profile)
+    if (profile.needs_pin) askPin('choose', profile, { opening: true })
+    else if (profile.has_pin && !(active && active.id === profile.id)) askPin('open', profile)
     else onPick(profile)
   }, [active, askPin, onPick])
 
@@ -154,6 +167,14 @@ export default function Profiles({
     } catch (e) {
       return verdict(e)
     }
+    if (pin.opening) {
+      castPin(profile.id, value)
+      await onChanged()
+      setPin(null)
+      setMode(pin.back)
+      onPick({ ...profile, needs_pin: false, has_pin: true })
+      return true
+    }
     unlocked.current = value
     setEditing((current) => current && { ...current, has_pin: true })
     onChanged()
@@ -189,7 +210,11 @@ export default function Profiles({
     session: pin,
     profile: pin && pin.profile,
     title: pin ? pinTitles[pin.step] : '',
-    subtitle: pin && pin.step === 'choose' ? t('Four digits, asked for when someone chooses this profile.') : null,
+    subtitle: pin && pin.step === 'choose'
+      ? (pin.opening
+        ? t('Parental controls are on, so every adult profile has a PIN. Four digits, asked for when someone chooses this profile.')
+        : t('Four digits, asked for when someone chooses this profile.'))
+      : null,
     onEntered: pinEntered,
     onCancel: () => {
       const back = pin ? pin.back : 'pick'
@@ -317,7 +342,8 @@ export default function Profiles({
 
   const pinMenu = [
     { id: 'change', label: t('Change PIN'), run: () => askPin('choose', editing) },
-    { id: 'remove', label: t('Remove PIN'), run: removePin },
+    // Under parental controls an adult keeps one.
+    ...(guarded ? [] : [{ id: 'remove', label: t('Remove PIN'), run: removePin }]),
   ]
 
   useEffect(() => {

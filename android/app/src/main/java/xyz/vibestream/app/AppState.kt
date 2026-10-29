@@ -25,12 +25,15 @@ import xyz.vibestream.app.api.HomeRow
 import xyz.vibestream.app.api.Profile
 import xyz.vibestream.app.ui.AvatarArt
 import xyz.vibestream.app.ui.Cast
+import xyz.vibestream.app.ui.Toasts
 
 object AppState {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var store: SharedPreferences
 
     var profiles by mutableStateOf<List<Profile>>(emptyList())
+    // Parental controls: profiles are made in the admin, adults keep a PIN.
+    var guarded by mutableStateOf(false)
     var profile by mutableStateOf<Profile?>(null)
     var needsProfilePick by mutableStateOf(false)
     /** PIN for the active profile, used in the cast hello. Kept in memory only. */
@@ -75,6 +78,7 @@ object AppState {
             val response = Api.profiles()
             val list = response.profiles
             profiles = list
+            guarded = response.parentalControls == true
             response.avatars?.takeIf { it.isNotEmpty() }?.let { avatarChoices = it }
             if (keepingSelection) {
                 profile?.let { current -> list.firstOrNull { it.id == current.id }?.let { profile = it } }
@@ -88,10 +92,12 @@ object AppState {
                 list.firstOrNull { it.id == id }?.let { pick(it); return@detached }
             }
             val stored = store.getInt(STORED_PROFILE, 0)
-            val found = list.firstOrNull { it.id == stored }
+            // One that has to choose a PIN first goes through the picker.
+            val found = list.firstOrNull { it.id == stored && !it.mustChoosePin }
             when {
                 found != null -> pick(found)
-                list.size == 1 && !list[0].locked -> pick(list[0])
+                // The only profile is taken without asking, unless it has a PIN.
+                list.size == 1 && !list[0].locked && !list[0].mustChoosePin -> pick(list[0])
                 else -> needsProfilePick = true
             }
         } catch (e: CancellationException) {
@@ -286,10 +292,8 @@ object AppState {
             while (isActive) {
                 var active = false
                 runCatching { Api.downloads() }.getOrNull()?.let { rows ->
-                    val map = rows.associateBy { it.torrentID }
                     active = rows.any { it.isWorking || it.isPreparing }
-                    downloads.keys.retainAll(map.keys)
-                    downloads.putAll(map)
+                    applyDownloads(rows)
                 }
                 delay(if (active) 2_000 else 15_000)
             }
@@ -299,8 +303,38 @@ object AppState {
     suspend fun download(torrent: Int, episode: Int? = null, everything: Boolean = false): DownloadState {
         val started = Api.startDownload(torrent, episode, everything)
         downloads[started.torrentID] = started
+        // The tracker had deleted the release pressed and another is coming:
+        // the pressed button reads its state from the new one from now on.
+        started.replaces?.let { replaced ->
+            replacements[replaced] = started.torrentID
+            downloads[replaced] = started
+        }
         startPolling()
         return started
+    }
+
+    /** Release pressed to the release downloading in its place. */
+    private val replacements = mutableMapOf<Int, Int>()
+
+    private fun applyDownloads(rows: List<DownloadState>) {
+        sayNewFailures(rows)
+        val map = rows.associateBy { it.torrentID }.toMutableMap()
+        replacements.forEach { (pressed, actual) -> map[actual]?.let { map[pressed] = it } }
+        downloads.keys.retainAll(map.keys)
+        downloads.putAll(map)
+    }
+
+    // A download that fails after it was accepted (the downloader gave up, a file went missing) is
+    // said in a toast, once. Failures already on the list when the app first looked are left alone:
+    // they were said before, and the button still wears its badge.
+    private var failuresSeen: Set<Int>? = null
+
+    private fun sayNewFailures(rows: List<DownloadState>) {
+        val failed = rows.filter { it.state == "error" }
+        val seen = failuresSeen
+        failuresSeen = (seen ?: emptySet()) + failed.map { it.id }
+        if (seen == null) return
+        failed.firstOrNull { it.id !in seen }?.let { Toasts.error(it.errorMessage ?: "A download failed.") }
     }
 
     suspend fun cancel(downloadID: Int, torrent: Int) {
@@ -311,9 +345,7 @@ object AppState {
 
     suspend fun refreshDownloads() {
         val rows = runCatching { Api.downloads() }.getOrNull() ?: return
-        val map = rows.associateBy { it.torrentID }
-        downloads.keys.retainAll(map.keys)
-        downloads.putAll(map)
+        applyDownloads(rows)
     }
 
     fun launch(block: suspend CoroutineScope.() -> Unit) = scope.launch(block = block)

@@ -122,17 +122,21 @@ struct MyListView: View {
             RemoteImage(url: (card.backdrop ?? card.poster).flatMap(URL.init(string:)))
                 .frame(width: artWidth, height: artWidth * 9 / 16)
                 .clipShape(.rect(cornerRadius: 6))
+                .opacity(card.isLocked ? 0.35 : 1)
+                .grayscale(card.isLocked ? 0.6 : 0)
+                .overlay { if card.isLocked { LockBadge(size: 16) } }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(card.title)
                     .font(.system(size: wide ? 19 : 15, weight: .semibold))
                     .lineLimit(2)
-                Text(subtitle(card))
+                Text(card.isLocked ? "Locked by parental controls" : subtitle(card))
                     .font(.caption).foregroundStyle(Palette.dim)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(card.isLocked ? 0.6 : 1)
 
-            if let id = playableFilm(card) {
+            if !card.isLocked, let id = playableFilm(card) {
                 Button {
                     playing = PlayRequest(downloadID: id, title: card.title)
                 } label: {
@@ -145,7 +149,7 @@ struct MyListView: View {
             }
         }
         .contentShape(.rect)
-        .onTapGesture { selection = card }
+        .onTapGesture { if !card.isLocked { selection = card } }
     }
 
     private var empty: some View {

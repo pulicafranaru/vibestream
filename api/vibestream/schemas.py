@@ -143,6 +143,8 @@ def media_card(
     downloads: dict[int, Download] | None = None,
     fallback: Torrent | None = None,
 ) -> dict:
+    """One tile in the dashboard grid, with every release behind it."""
+    from .services import maturity
     from .services.ranking import rank
 
     from .services.offered import offered
@@ -184,6 +186,8 @@ def media_card(
         "logo": logo_url(facts.get("logo")),
         "backdrop_small": backdrop_url(media.backdrop_path if media else None, "w780"),
         "certification": facts.get("certification"),
+        # Above a kids profile's ceiling: only ever on its watchlist, dimmed and unplayable.
+        "locked": not maturity.allowed(media, maturity.current()),
         "tags": (facts.get("keywords") or [])[:3],
         "limited": bool(facts.get("limited")),
         "season_count": facts.get("seasons"),

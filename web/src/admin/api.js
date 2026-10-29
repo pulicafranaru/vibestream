@@ -41,6 +41,8 @@ export const admin = {
   overview: () => call('/overview'),
   health: () => call('/health'),
   version: () => call('/version'),
+  news: () => call('/news'),
+  newsSeen: () => call('/news/seen', { method: 'POST' }),
   events: (params = {}) => {
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''))
     return call(`/events${q.toString() ? `?${q}` : ''}`)

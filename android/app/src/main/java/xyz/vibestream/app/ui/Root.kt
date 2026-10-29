@@ -238,6 +238,12 @@ fun RootView(onPlay: (PlayRequest) -> Unit) {
             DownloadsView(nav)
         }
     }
+    // After an update, once: what is new for whoever is watching.
+    AppState.news?.let { news ->
+        ModalBottomSheet(onDismissRequest = { AppState.newsSeen() }, containerColor = Palette.ground) {
+            WhatsNewSheet(news) { AppState.newsSeen() }
+        }
+    }
     if (showingNotifications) {
         ModalBottomSheet(onDismissRequest = { showingNotifications = false }, containerColor = Palette.ground) {
             NotificationsList(

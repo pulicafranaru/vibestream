@@ -1011,3 +1011,23 @@ struct Trickplay: Codable, Sendable {
         return found
     }
 }
+
+// MARK: - What is new
+
+/// The releases since an app last said what was new, newest first, each
+/// with its items for this app.
+struct WhatsNew: Codable, Sendable, Identifiable {
+    var version: String
+    var releases: [Release]
+    var id: String { version }
+
+    struct Release: Codable, Sendable {
+        var version: String
+        var items: [Item]
+    }
+
+    struct Item: Codable, Sendable, Hashable {
+        var title: String
+        var text: String
+    }
+}

@@ -82,6 +82,23 @@ async def version():
     return await updates.status()
 
 
+@locked.get("/news")
+def news_for_dashboard(s: Session = Depends(get_session)):
+    """After an update: what changed since the version this server ran before."""
+    from ..services import news
+
+    return news.for_dashboard(s)
+
+
+@locked.post("/news/seen")
+def news_seen(s: Session = Depends(get_session)):
+    from ..services import news
+
+    news.dismiss(s)
+    s.commit()
+    return {"ok": True}
+
+
 @locked.get("/health")
 async def health(session: Session = Depends(get_session)):
     result: dict[str, dict] = {}

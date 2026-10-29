@@ -37,6 +37,7 @@ export default function Overview({ go }) {
   const [checking, setChecking] = useState(false)
   const [recent, setRecent] = useState([])
   const [release, setRelease] = useState(null)
+  const [news, setNews] = useState(null)
   const [running, setRunning] = useState(null)
   const say = useToast()
 
@@ -51,6 +52,7 @@ export default function Overview({ go }) {
     check()
     admin.events({ limit: 6 }).then(setRecent).catch(() => {})
     admin.version().then(setRelease).catch(() => {})
+    admin.news().then(setNews).catch(() => {})
     const timer = setInterval(load, 10000)
     return () => clearInterval(timer)
   }, [])
@@ -105,6 +107,7 @@ export default function Overview({ go }) {
       </section>
 
       {release && release.available && <Update release={release} />}
+      {news && news.show && <WhatsNew news={news} onDone={() => { setNews(null); admin.newsSeen().catch(() => {}) }} />}
 
       <div className="grid four" style={{ marginBottom: 18 }}>
         <Stat icon="film" label="Movies" value={o.library.movies} foot="ready to play" />
@@ -260,6 +263,31 @@ function Skeleton() {
         {[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 130, borderRadius: 14 }} />)}
       </div>
     </>
+  )
+}
+
+// After an update: what changed since the version this server ran before, until dismissed.
+function WhatsNew({ news, onDone }) {
+  return (
+    <section className="update news">
+      <Icon name="info" size={20} />
+      <div className="update-main">
+        <b>Updated to {news.version}</b>
+        <span>From {news.updated_from}. What is new:</span>
+        {news.releases.map((r) => (
+          <div key={r.version} className="news-release">
+            {news.releases.length > 1 && <h4>{r.version}</h4>}
+            {r.intro && <p>{r.intro}</p>}
+            <ul>
+              {[...r.server, ...r.apps].map((item, i) => (
+                <li key={i}><b>{item.title}</b>{item.text}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <div><button className="btn small" onClick={onDone}>Got it</button></div>
+      </div>
+    </section>
   )
 }
 

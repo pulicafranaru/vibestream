@@ -23,6 +23,7 @@ import xyz.vibestream.app.api.DownloadState
 import xyz.vibestream.app.api.HomeFeed
 import xyz.vibestream.app.api.HomeRow
 import xyz.vibestream.app.api.Profile
+import xyz.vibestream.app.api.WhatsNew
 import xyz.vibestream.app.ui.AvatarArt
 import xyz.vibestream.app.ui.Cast
 import xyz.vibestream.app.ui.Toasts
@@ -40,6 +41,10 @@ object AppState {
     var profilePin: String? = null
     var notificationsSeen by mutableStateOf("")
     var avatarChoices by mutableStateOf(AvatarArt.all)
+    /** What is new since this device last said, shown once after an update. */
+    var news by mutableStateOf<WhatsNew?>(null)
+    private var returning = false
+    private var newsAsked = false
 
     var feed by mutableStateOf<HomeFeed?>(null)
     var feeds by mutableStateOf<Map<String, HomeFeed>>(emptyMap())
@@ -61,6 +66,7 @@ object AppState {
 
     fun init(context: Context) {
         store = context.getSharedPreferences("vibestream", Context.MODE_PRIVATE)
+        returning = store.contains(STORED_PROFILE)
     }
 
     // Runs outside the caller's scope: picking a profile closes the profile screen and would cancel it.
@@ -144,12 +150,35 @@ object AppState {
         store.edit().putInt(STORED_PROFILE, chosen.id).apply()
         notificationsSeen = store.getString(seenKey(), "").orEmpty()
         Api.profileID = chosen.id
+        scope.launch { askNews() }
         loadRatings()
         loadMyList()
         loadClips()
         loadFeed()
     }
 
+    // ---------------------------------------------------------- what is new
+
+    private const val NEWS_SEEN = "vibestream.news.seen"
+
+    /** Once a launch: the releases since this device last said, if any. */
+    private suspend fun askNews() {
+        if (newsAsked) return
+        newsAsked = true
+        val seen = store.getString(NEWS_SEEN, null) ?: if (returning) "1.0.0" else null
+        val found = runCatching { Api.news(seen) }.getOrNull() ?: return
+        if (seen == null || found.releases.isEmpty()) store.edit().putString(NEWS_SEEN, found.version).apply()
+        else news = found
+    }
+
+    fun newsSeen() {
+        news?.let { store.edit().putString(NEWS_SEEN, it.version).apply() }
+        news = null
+    }
+
+    // ---------------------------------------------------------------- feed
+
+    /** Still the profile a load started for: a switch midway drops its answers. */
     private fun still(id: Int?) = profile?.id == id
 
     suspend fun loadFeed() = detached {

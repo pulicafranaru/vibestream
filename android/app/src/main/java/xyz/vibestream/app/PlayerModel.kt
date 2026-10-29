@@ -76,7 +76,7 @@ class PlayerModel(private val context: Context, val request: PlayRequest) : Clip
     val stats = PlayerStats(player)
 
     private var pendingResume = 0.0
-    // Where a seek still landing is going, so the clock ticks do not drag the scrubber back to.
+    // Where a seek still landing is going, so the clock ticks do not drag the knob back.
     private var seekTarget: Double? = null
     private var seekSerial = 0
     private var renditionJob: Job? = null
@@ -274,7 +274,7 @@ class PlayerModel(private val context: Context, val request: PlayRequest) : Clip
         if (trickplay == null) loadTrickplay()
     }
 
-    // The start, one step after another: the item ready at its place, its subtitles chosen, then.
+    // The start, one step after another: the item ready at its place, then its subtitles, then play.
     private fun begin() {
         starting = false
         ready = true

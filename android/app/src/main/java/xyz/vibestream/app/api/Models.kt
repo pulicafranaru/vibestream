@@ -783,3 +783,14 @@ data class ClipVertical(
     @Serializable data class Shot(val start: Double, val end: Double, val points: List<List<Double>> = emptyList())
     @Serializable data class Keyframe(val t: Double, val x: Double, val y: Double = 0.5, val zoom: Double = 1.0)
 }
+
+/** The releases since an app last said what was new, newest first, each
+ *  with its items for this app. */
+@Serializable
+data class WhatsNew(val version: String, val releases: List<Release> = emptyList()) {
+    @Serializable
+    data class Release(val version: String, val items: List<Item> = emptyList())
+
+    @Serializable
+    data class Item(val title: String = "", val text: String = "")
+}

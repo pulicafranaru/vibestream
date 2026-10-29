@@ -87,7 +87,11 @@ def init_db() -> None:
     fresh = not inspect(engine).get_table_names()
     Base.metadata.create_all(engine)
     _add_missing_columns()
-    migrate(engine, fresh)
+    before = migrate(engine, fresh)
+    from .services import news
+
+    with session_scope() as s:
+        news.note_start(s, fresh, before)
     log.info("database ready at %s", settings.db_path)
 
 

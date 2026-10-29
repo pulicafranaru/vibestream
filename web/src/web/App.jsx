@@ -13,6 +13,8 @@ import { ProfileGate, useProfileEditor } from './Profiles'
 import Search from './Search'
 import { GenrePage, PersonPage } from './Collection'
 import SpaceDialog from './SpaceDialog'
+import WhatsNew from './WhatsNew'
+import { rememberNews, whatsNew } from '../shared/whatsNew'
 import { buildPath, navigate, onRouteChange, parseLocation, sectionFor } from './router'
 
 const PROFILE_KEY = 'vibestream.profile'
@@ -71,6 +73,15 @@ export default function App() {
       setMyList(new Set())
     }
   }, [])
+
+  // Once a visit, after a profile is chosen: what is new since the last update.
+  const [news, setNews] = useState(null)
+  const newsAsked = useRef(false)
+  useEffect(() => {
+    if (!profile || newsAsked.current) return
+    newsAsked.current = true
+    whatsNew('web').then(setNews).catch(() => {})
+  }, [profile])
 
   const loadProfiles = useCallback(
     async (select = true) => {
@@ -395,6 +406,7 @@ export default function App() {
       />
       {ownProfile.element}
       {spaceAsk && <SpaceDialog space={spaceAsk.space} onAnswer={spaceAsk.resolve} />}
+      {news && <WhatsNew news={news} onDone={() => { rememberNews(news.version); setNews(null) }} />}
       {toast && (
         <div className="toast" role="alert" key={toast.key} onClick={() => setToast(null)}>
           <span className="fail-badge">!</span>

@@ -478,6 +478,10 @@ body.legacy-tv .pill-btn {
   color: var(--text-dim);
 }
 
+.whats-new ul { margin: 0; padding-left: 30px; font-size: 24px; line-height: 1.45; color: var(--text-dim); }
+.whats-new li + li { margin-top: 12px; }
+.whats-new strong { color: #fff; }
+
 .dialog-warn {
   color: #ffb4b4 !important;
 }

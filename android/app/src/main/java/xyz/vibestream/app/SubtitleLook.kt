@@ -36,7 +36,7 @@ object SubtitleLook {
     fun label(size: String, style: String) =
         "${sizes.firstOrNull { it.first == size }?.second ?: "Medium"}, ${styles.firstOrNull { it.first == style }?.second ?: "Drop Shadow"}"
 
-    // The type size for a picture this tall, in dp, before the size chosen: the TV sizes its lines.
+    // The type size for a picture this tall, in dp, before the size chosen, as the TV sizes its lines.
     fun base(pictureHeight: Float) = (pictureHeight * 0.048f).coerceIn(13f, 34f)
 
     // The look given to ExoPlayer's subtitle view, for a picture `height` dp tall, lifted `lift`.

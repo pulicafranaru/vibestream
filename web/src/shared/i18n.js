@@ -164,7 +164,7 @@ const DICT = {
     'on disk': 'belegt', 'free': 'frei', 'up': 'hoch', 'down': 'runter',
     'Torrent files': 'Torrent-Dateien', 'Playback files': 'Wiedergabedateien',
     size: 'Größe', done: 'fertig', left: 'übrig', ratio: 'Ratio', seeded: 'geseedet',
-    'Keep it': 'Behalten',
+    'Keep it': 'Behalten', 'New in': 'Neu in', 'Got it': 'Verstanden',
     'Deleting...': 'Wird gelöscht...', Paused: 'Pausiert',
     'Nothing downloaded yet. Pick a title and choose Download.':
       'Noch nichts heruntergeladen. Wähle einen Titel und dann „Herunterladen“.',
@@ -381,7 +381,7 @@ const DICT = {
     'on disk': 'pe disc', 'free': 'liber', 'up': 'upload', 'down': 'download',
     'Torrent files': 'Fișiere torrent', 'Playback files': 'Fișiere de redare',
     size: 'mărime', done: 'gata', left: 'rămas', ratio: 'raport', seeded: 'seed',
-    'Keep it': 'Păstrează',
+    'Keep it': 'Păstrează', 'New in': 'Nou în', 'Got it': 'Am înțeles',
     'Deleting...': 'Se șterge...', Paused: 'Pe pauză',
     'Nothing downloaded yet. Pick a title and choose Download.':
       'Nimic descărcat încă. Alege un titlu și apasă Descarcă.',

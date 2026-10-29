@@ -217,6 +217,12 @@ object Api {
 
     suspend fun notifications() = get(NotificationFeed.serializer(), "/api/notifications")
 
+    /** What is new in this app since `since`, from the server's release notes. */
+    suspend fun news(since: String?) =
+        get(WhatsNew.serializer(), "/api/news", buildMap { put("app", "android"); since?.let { put("since", it) } })
+
+    // ------------------------------------------------------------ profiles
+
     suspend fun profiles() = get(ProfileList.serializer(), "/api/profiles")
 
     suspend fun createProfile(name: String, avatar: String) =

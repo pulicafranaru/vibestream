@@ -60,14 +60,15 @@ def schema(conn: Connection) -> int:
     return int(conn.exec_driver_sql("PRAGMA user_version").scalar() or 0)
 
 
-def migrate(engine: Engine, fresh: bool) -> None:
-    """Bring the database to len(STEPS), each step in its own transaction.
-    A database past len(STEPS) is from a newer VibeStream, and is refused."""
+def migrate(engine: Engine, fresh: bool) -> int:
+    """Bring the database to len(STEPS), each step in its own transaction,
+    and say the number it was at. A database past len(STEPS) is from a newer
+    VibeStream, and is refused."""
     with engine.begin() as conn:
         at = schema(conn)
         if fresh:
             conn.exec_driver_sql(f"PRAGMA user_version = {len(STEPS)}")
-            return
+            return at
     if at > len(STEPS):
         raise NewerDatabase(
             f"the database is from a newer VibeStream (schema {at}, this version knows "
@@ -78,3 +79,4 @@ def migrate(engine: Engine, fresh: bool) -> None:
             STEPS[number](conn)
             conn.exec_driver_sql(f"PRAGMA user_version = {number + 1}")
         log.info("database schema %d: %s", number + 1, STEPS[number].__name__.strip("_"))
+    return at

@@ -74,6 +74,12 @@ struct RootView: View {
             Cast.shared.start(profile: state.profile?.id)
             Cast.shared.watchElsewhere()
         }
+        // After an update, once: what is new for whoever is watching.
+        .sheet(item: Binding(get: { state.news }, set: { if $0 == nil { state.newsSeen() } })) { news in
+            WhatsNewView(news: news) { state.newsSeen() }
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Palette.ground)
+        }
         .sheet(isPresented: $cast.remoteShown) {
             CastRemote { card in
                 // After the remote's sheet has gone: one sheet at a time.

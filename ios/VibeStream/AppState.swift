@@ -11,7 +11,11 @@ final class AppState {
     var guarded = false
     var profile: Profile?
     var needsProfilePick = false
-    /// Shared, so opening any tab's bell clears the dot on all of them.
+    /// What is new since this device last said, shown once after an update.
+    var news: WhatsNew?
+    /// The newest notification this profile has seen here. Kept here rather
+    /// than in each bell, since every tab has its own bell and opening one
+    /// must clear the dot on all of them.
     var notificationsSeen = ""
     var avatarChoices: [String] = AvatarArt.all
 
@@ -34,6 +38,9 @@ final class AppState {
     private var pollTask: Task<Void, Never>?
     // Do not rename: installed copies store the profile under this key.
     private let storedProfileKey = "vibestream.profile"
+    private let newsSeenKey = "vibestream.news.seen"
+    @ObservationIgnored private let returning = UserDefaults.standard.object(forKey: "vibestream.profile") != nil
+    @ObservationIgnored private var newsAsked = false
 
     func start() async {
         await loadProfiles()
@@ -125,6 +132,7 @@ final class AppState {
         needsProfilePick = false
         UserDefaults.standard.set(chosen.id, forKey: storedProfileKey)
         await APIClient.shared.setProfile(chosen.id)
+        Task { await askNews() }
         await loadRatings()
         await loadMyList()
         await loadClips()
@@ -152,7 +160,25 @@ final class AppState {
         }
     }
 
-    /// The server sends every genre, most of them empty.
+    /// Rows worth drawing: the server sends every genre, most of them empty.
+    /// Once a launch: the releases since this device last said, if any.
+    private func askNews() async {
+        guard !newsAsked else { return }
+        newsAsked = true
+        let seen = UserDefaults.standard.string(forKey: newsSeenKey) ?? (returning ? "1.0.0" : nil)
+        guard let found = try? await APIClient.shared.news(since: seen) else { return }
+        if seen == nil || found.releases.isEmpty {
+            UserDefaults.standard.set(found.version, forKey: newsSeenKey)
+        } else {
+            news = found
+        }
+    }
+
+    func newsSeen() {
+        if let news { UserDefaults.standard.set(news.version, forKey: newsSeenKey) }
+        news = nil
+    }
+
     var rows: [HomeFeed.Row] {
         (feed?.rows ?? []).filter { !$0.items.isEmpty }
     }

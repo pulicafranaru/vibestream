@@ -181,6 +181,15 @@ actor APIClient {
         try await fetch(NotificationFeed.self, "/api/notifications")
     }
 
+    /// What is new in this app since `since`, from the server's release notes.
+    func news(since: String?) async throws -> WhatsNew {
+        var query = ["app": "ios"]
+        if let since { query["since"] = since }
+        return try await fetch(WhatsNew.self, "/api/news", query: query)
+    }
+
+    // MARK: - Profiles
+
     func profiles() async throws -> ProfileList {
         try await fetch(ProfileList.self, "/api/profiles")
     }

@@ -10,6 +10,7 @@ import Profiles from './Profiles'
 import Search from './Search'
 import { MENU_ITEMS, NotificationsPanel, ProfileMenu } from './TopNav'
 import { markNotesRead, useNotes, watchNotes } from './notes'
+import { rememberNews, whatsNew } from '../shared/whatsNew'
 import { logInput, startInputLog } from './inputLog'
 import { onCastControl, reportCastState, startCast, stopCast } from './cast'
 
@@ -80,7 +81,20 @@ export default function App() {
   // Parental controls: the admin makes profiles, and adults keep a PIN.
   const [guarded, setGuarded] = useState(false)
   const [profile, setProfile] = useState(null)
-  // null, 'start' (full screen picker) or 'switch' (side panel).
+  // What is new since this TV last said, once after an update.
+  const [news, setNews] = useState(null)
+  const newsAsked = useRef(false)
+  const closeNews = useCallback(() => {
+    setNews((shown) => { if (shown) rememberNews(shown.version); return null })
+  }, [])
+  const newsRef = useRef(null)
+  newsRef.current = news ? { close: closeNews } : null
+  useEffect(() => {
+    if (!profile || newsAsked.current) return
+    newsAsked.current = true
+    whatsNew('tv').then(setNews).catch(() => {})
+  }, [profile])
+  // null, or 'start' (the full screen picker) or 'switch' (the side panel).
   const [picking, setPicking] = useState(null)
   const [menu, setMenu] = useState(null) // null, or the focused index
   const [bell, setBell] = useState(null) // the bell's list: null, or the focused index
@@ -536,6 +550,11 @@ export default function App() {
           setStageShown(true)
           setBoot('done')
         }
+        return
+      }
+      // What is new: OK or Back puts it away, nothing reaches the screen under it.
+      if (newsRef.current) {
+        if (name === 'enter' || name === 'back') newsRef.current.close()
         return
       }
       const handler = menuRef.current || handlerRef.current || {}
@@ -1050,6 +1069,22 @@ export default function App() {
             onChoose={chooseMenu}
           />
         </>
+      )}
+
+      {news && (
+        <div className="scrim">
+          <div className="dialog whats-new">
+            <h2>{t('New in')} {news.version}</h2>
+            <ul>
+              {[].concat(...news.releases.map((r) => r.items)).map((item, i) => (
+                <li key={i}><strong>{item.title}</strong>{item.text}</li>
+              ))}
+            </ul>
+            <div className="dialog-actions">
+              <div className="pill-btn focused" onClick={closeNews}>{t('Got it')}</div>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (

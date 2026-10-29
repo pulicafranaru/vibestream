@@ -428,6 +428,10 @@ a { color: inherit; }
 .update-main b { font-size: 16px; }
 .update-main > span { color: var(--dim); font-size: 13.5px; }
 .update-main .gate-command { margin: 6px 0 2px; }
+.news-release h4 { margin: 8px 0 2px; font-size: 13px; color: var(--dim); }
+.news-release p { margin: 4px 0; color: var(--dim); font-size: 13.5px; }
+.news-release ul { margin: 4px 0 6px; padding-left: 18px; font-size: 13.5px; line-height: 1.5; }
+.news-release li b { color: var(--text); }
 
 .pulse {
   position: relative;

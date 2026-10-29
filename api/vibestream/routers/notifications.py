@@ -15,6 +15,18 @@ from ..services.tmdb import backdrop_url, poster_url
 
 router = APIRouter(prefix="/api", tags=["notifications"])
 
+
+@router.get("/news")
+def news(since: str | None = None, app: str | None = Query(None, pattern="^(android|ios|web|tv)$")):
+    """What is new in the apps since the version an app last told of, newest
+    first; releases with nothing for this app are left out."""
+    from ..services import news as notes
+
+    from .. import VERSION
+
+    found = [{"version": r["version"], "items": r["apps"]} for r in notes.since(since, app) if r["apps"]]
+    return {"version": VERSION, "releases": found}
+
 LIBRARY_DAYS = 30
 ARRIVAL_DAYS = 7
 ARRIVAL_LIMIT = 6

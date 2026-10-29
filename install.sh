@@ -144,7 +144,10 @@ restore() {
   cp -p "$b/env" "$ENV_FILE"
   [ ! -f "$b/docker-compose.yml" ] || cp -p "$b/docker-compose.yml" docker-compose.yml
   img="$( (. "$b/env"; printf '%s' "$IMAGE") )"
-  docker tag "$NAME-rollback:$(basename "$b")" "$img"
+  # Without the saved image, compose fetches the one the settings name.
+  if docker image inspect "$NAME-rollback:$(basename "$b")" >/dev/null 2>&1; then
+    docker tag "$NAME-rollback:$(basename "$b")" "$img"
+  fi
   docker compose up -d --remove-orphans
 }
 
@@ -442,7 +445,12 @@ if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "$NEW_ID" ] && [ -f "$DIR/data/vibestream.
   cp -p "$DIR"/data/vibestream.db* "$BACKUP/"
   cp -p "$PREVIOUS"/* "$BACKUP/"
   image_version "$OLD_ID" >"$BACKUP/version"
-  docker tag "$OLD_ID" "$NAME-rollback:$stamp"
+  # An image already gone (removed by hand) only means no image to go back to.
+  if docker image inspect "$OLD_ID" >/dev/null 2>&1; then
+    docker tag "$OLD_ID" "$NAME-rollback:$stamp"
+  else
+    echo "the image this server ran is gone: the database is backed up, the image is not"
+  fi
   find "$DIR/backups" -mindepth 1 -maxdepth 1 -type d | sort | head -n "-$KEEP_BACKUPS" | while read -r old; do
     docker rmi "$NAME-rollback:$(basename "$old")" >/dev/null 2>&1 || true
     rm -rf "$old"

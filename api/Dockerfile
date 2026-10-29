@@ -37,6 +37,9 @@ COPY api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api/vibestream ./vibestream
+# The release notes, for the dashboard and the apps to say what is new.
+COPY docs/releases ./releases
+ENV VIBESTREAM_RELEASES_DIR=/app/releases
 COPY --from=web /build/dist ./web
 COPY --from=web /build/dist-legacy ./web/legacy
 
